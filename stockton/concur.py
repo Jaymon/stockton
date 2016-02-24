@@ -4,7 +4,7 @@ import shlex
 
 
 class ConfigLine(object):
-    def __init__(self, line):
+    def __init__(self, line=""):
         line = line.rstrip()
         self.line = line
 
@@ -13,6 +13,9 @@ class ConfigLine(object):
 
     def __str__(self):
         return self.line
+
+    def parse(self, fp):
+        self.line = fp.line
 
 
 class ConfigOption(ConfigLine):
@@ -66,14 +69,22 @@ class ConfigOption(ConfigLine):
         return s
 
 
+
+
+
+
 class ConfigSection(ConfigOption):
     def __init__(self, name=None):
         super(ConfigSection, self).__init__(name)
         self.lines = []
         self.options = {}
 
-    def parse(self, line):
-        return
+    def parse(self, fp):
+        pass
+
+    def __str__(self):
+        s = "\n".join(str(cl) for cl in self.lines)
+        return s
 
 
 #     def append()
@@ -86,16 +97,71 @@ class ConfigSection(ConfigOption):
 # the file pointer, and the line number
 
 
-the Config is more a ConfigFile object, it is the master class
+# the Config is more a ConfigFile object, it is the master class
+# 
+# The section is the one that will need to know about commenters, and it will decide
+# when to create option and line classes
+# 
+# the option class will only need to know dividers and the format, maybe commenters
+# if we want to be able to catch the commented out options?
+# 
+# the section parser will take a file pointer, the option parser will take a line, we might
+# want it to take a fp also so it can handle multiline options
+# 
 
-The section is the one that will need to know about commenters, and it will decide
-when to create option and line classes
 
-the option class will only need to know dividers and the format, maybe commenters
-if we want to be able to catch the commented out options?
 
-the section parser will take a file pointer, the option parser will take a line, we might
-want it to take a fp also so it can handle multiline options
+
+
+class ConfigFile(object):
+    def __init__(self, path, config):
+        self.path = path
+        self.config = config
+        self.fp = open(self.path, "r")
+        self.line_number = -1
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        c = None
+        line = self.fp.next()
+        self.line_number += 1
+        self.line = line.rstrip()
+
+        c = self.config.section_class()
+        c.parse(self)
+        if not c.is_valid():
+            c = self.config.option_class()
+            c.parse(self)
+            if not c.is_valid():
+                c = self.config.line_class()
+                c.parse(self)
+
+        return c
+
+#     def __iter__(self):
+#         with open(self.path, "r") as f:
+#             for line_number, line in enumerate(f):
+#                 self.line_number = line_number
+#                 self.line = line.rstrip()
+# 
+#                 cs = self.config.section_class()
+#                 cs.parse(self)
+#                 if cs.is_valid():
+#                     yield cs
+# 
+#                 else:
+#                     co = self.config.option_class()
+#                     co.parse(self)
+#                     if co.is_valid():
+#                         yield co
+# 
+#                     else:
+#                         cl = self.config.line_class()
+#                         cl.parse(self)
+#                         yield cl
+
 
 
 class Config(object):
@@ -135,58 +201,66 @@ class Config(object):
         self.parse_prototype(val)
 
     def __init__(self, dest_path="", prototype_path=""):
+        self.sections = {}
+        self.options = {}
+        self.lines = []
+
         if prototype_path:
             self.prototype_path = prototype_path
 
         if dest_path:
             self.dest_path = dest_path
 
-        self.name_map = {}
-        self.lines = []
-
-    def update_instance(self, instance):
-        instance.commenters = self.commenters
-        instance.option_divider = self.option_divider
-        instance.option_set_format = self.option_set_format
-        instance.line_class = self.line_class
-        instance.option_class = self.option_class
-        instance.section_class = self.section_class
-
-    def create_section(self, *args, **kwargs):
-        instance = self.section_class(*args, **kwargs)
-        self.update_instance(instance)
-        return instance
 
     def parse_prototype(self, path):
+
+        fp = ConfigFile(path, self)
         self.sections = {}
         self.options = {}
         self.lines = []
 
-        with open(path, "r") as f:
-            current_section = None
-            for line_number, line in enumerate(f):
+        for line_number, c in enumerate(fp):
+            if isinstance(c, self.section_class):
+                self.sections[c.name] = line_number
+                self.lines.append(c)
 
-                cs = self.section_class()
-                cs.parse(line)
-                if cs.is_valid():
-                    current_section = cs
-                    self.lines.append(cs)
-                    self.sections[cs.name] = line_number
+            elif isinstance(c, self.option_class):
+                self.options[c.name] = line_number
+                self.lines.append(c)
+ 
+            elif isinstance(c, self.line_class):
+                self.lines.append(c)
 
-                else:
-                    co = self.option_class()
-                    co.parse(line)
-                    if co.is_valid():
-                        if current_section:
-                            current_section.append(co, line_number)
-
-                        else:
-                            self.lines.append(co)
-                            self.options[co.name] = line_number
-
-                    else:
-                        cl = self.line_class(line)
-                        self.lines.append(cl)
+#     def parse_prototype(self, path):
+#         self.sections = {}
+#         self.options = {}
+#         self.lines = []
+# 
+#         with open(path, "r") as f:
+#             current_section = None
+#             for line_number, line in enumerate(f):
+# 
+#                 cs = self.section_class()
+#                 cs.parse(line)
+#                 if cs.is_valid():
+#                     current_section = cs
+#                     self.lines.append(cs)
+#                     self.sections[cs.name] = line_number
+# 
+#                 else:
+#                     co = self.option_class()
+#                     co.parse(line)
+#                     if co.is_valid():
+#                         if current_section:
+#                             current_section.append(co, line_number)
+# 
+#                         else:
+#                             self.lines.append(co)
+#                             self.options[co.name] = line_number
+# 
+#                     else:
+#                         cl = self.line_class(line)
+#                         self.lines.append(cl)
 
     def modify(self, name, val):
         if name in self.name_map:
@@ -219,6 +293,14 @@ class Config(object):
                 f.write(str(cl))
                 f.write("\n")
 
+
+
+
+
+
+
+
+
 # c = Config(prototype_path="main-example.cf")
 # pout.v(str(c))
 # 
@@ -228,7 +310,6 @@ class Config(object):
 # c.modify("smtpd_tls_cert_file", "/path/to/some/pem.pem")
 # 
 # pout.v(str(c))
-
 
 
 
