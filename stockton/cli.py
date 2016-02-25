@@ -44,17 +44,24 @@ def run(cmd, capture_output=False, **process_kwargs):
     return output
 
 
-def package(*packages):
+def package(*packages, **kwargs):
     for p in packages:
-        run("apt-get -y install --no-install-recommends {}".format(p))
+        if kwargs.get("only_upgrade", False):
+            run("apt-get -y install --only-upgrade {}".format(p))
+
+        else:
+            run("apt-get -y install --no-install-recommends {}".format(p))
 
 
 def postfix_reload():
-    output = run("postfix status", capture_output=True)
-    if re.match("not\s+running", output, flags=re.I):
-        cli.run("postfix start")
+    try:
+        run("postfix status")
 
-    cli.run("postfix reload")
+    except RuntimeError:
+        run("postfix start")
+
+    finally:
+        run("postfix reload")
 
 
 def print_err(format_str, *args, **kwargs):

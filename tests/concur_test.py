@@ -3,6 +3,7 @@ from unittest import TestCase
 import testdata
 
 from stockton import postfixconfig as postfix
+from stockton.concur import ConfigFile, Config, ConfigSection
 
 
 def setUpModule():
@@ -13,25 +14,125 @@ def tearDownModule():
     pass
 
 
-class PostfixTestCase(TestCase):
+class ConfigFileTest(TestCase):
+    def test_replay(self):
+        path = testdata.create_file("counting", "\n".join([str(x) for x in range(5)]))
+
+        class RConSec(ConfigSection):
+            def _parse(self, fp):
+                self.name = fp.line
+
+        class RCon(Config):
+            parse_class = RConSec
+
+
+        fp = ConfigFile(path, RCon())
+
+        c = fp.next()
+        self.assertEqual(0, int(c.line))
+
+        c = fp.next()
+        self.assertEqual(1, int(c.line))
+
+        fp.replay(c, fp.line, fp.line_number)
+        c = fp.next()
+        self.assertEqual(1, int(c.line))
+
+        c = fp.next()
+        self.assertEqual(2, int(c.line))
+
+        c = fp.next()
+        self.assertEqual(3, int(c.line))
+
+        fp.replay(c, fp.line, fp.line_number)
+        c = fp.next()
+        self.assertEqual(3, int(c.line))
+
+        c = fp.next()
+        self.assertEqual(4, int(c.line))
+
+        with self.assertRaises(StopIteration):
+            fp.next()
+
+
+class PostfixTest(TestCase):
 
     def test_master_option(self):
         class FP(object):
-            line = "  -o smtpd_tls_wrappermode=yes"
+            line = "  -o foo=yes"
 
         mo = postfix.MasterOption()
         mo.parse(FP())
-        pout.v(mo)
+        self.assertEqual("foo", mo.name)
+        self.assertEqual("yes", mo.val)
 
-    def test_master(self):
+        mo.val = "no"
+        self.assertEqual("no", mo.val)
+        self.assertEqual("  -o foo=no", str(mo))
+
+
+    def test_master_section_manipulate_option(self):
         master_path = testdata.create_file("master.cf", "\n".join([
-#             "#",
-#             "# this is the stuff before the first section",
-#             "#",
-#             "# ==========================================================================",
-#             "# service type  private unpriv  chroot  wakeup  maxproc command + args",
-#             "#               (yes)   (yes)   (yes)   (never) (100)",
-#             "# ==========================================================================",
+            "smtp      inet  n       -       -       -       -       smtpd",
+            "  -o foo=yes",
+            "  -o bar=yes",
+        ]))
+
+        master = postfix.Master(prototype_path=master_path)
+        self.assertTrue(isinstance(master["smtp"], postfix.MasterSection))
+
+        contents = "\n".join([
+            "smtp      inet  n       -       -       -       -       smtpd",
+            "  -o foo=no",
+            "  -o bar=yes",
+        ])
+        master["smtp"]["foo"] = "no"
+        self.assertEqual(contents, str(master))
+
+    def test_master_section_append_option(self):
+        master_path = testdata.create_file("master.cf", "\n".join([
+            "smtp inet n - - - - smtpd",
+            "  -o foo=yes",
+        ]))
+
+        master = postfix.Master(prototype_path=master_path)
+        contents = "\n".join([
+            "smtp inet n - - - - smtpd",
+            "  -o foo=yes",
+            "  -o bar=yes",
+        ])
+        master["smtp"]["bar"] = "yes"
+        self.assertEqual(contents, str(master))
+
+    def test_master_sections(self):
+        contents = "\n".join([
+            "one inet n - - - - smtpd",
+            "  -o smtpd_tls_wrappermode=yes",
+            "two inet n - - - - qmqpd",
+            "three fifo n - - 60 1 pickup",
+        ])
+        master_path = testdata.create_file("master.cf", contents)
+
+        master = postfix.Master(prototype_path=master_path)
+        self.assertEqual(contents, str(master))
+
+    def test_master_section_commented(self):
+        contents = "#smtps     inet  n       -       -       -       -       smtpd"
+        master_path = testdata.create_file("master.cf", contents)
+
+        master = postfix.Master(prototype_path=master_path)
+        master["smtps"].modified = True
+        self.assertEqual("smtps     inet  n       -       -       -       -       smtpd", str(master))
+
+    def test_master_comments(self):
+        master_path = testdata.create_file("master.cf", "\n".join([
+            "#",
+            "# this is the stuff before the first section",
+            "#",
+            "# ==========================================================================",
+            "# service type  private unpriv  chroot  wakeup  maxproc command + args",
+            "#               (yes)   (yes)   (yes)   (never) (100)",
+            "# ==========================================================================",
             "smtp      inet  n       -       -       -       -       smtpd",
             "  -o smtpd_tls_wrappermode=yes",
             "  -o smtpd_sasl_auth_enable=yes",
@@ -40,4 +141,60 @@ class PostfixTestCase(TestCase):
         ]))
 
         master = postfix.Master(prototype_path=master_path)
-        pout.v(str(master))
+        self.assertEqual(8, len(master.lines))
+        self.assertEqual(4, len(master["smtp"].lines))
+
+    def test_master_section_modify_option(self):
+        master_path = testdata.create_file("master.cf", "\n".join([
+            "#submission inet n       -       -       -       -       smtpd",
+            "#  -o syslog_name=postfix/submission",
+            "#  -o smtpd_tls_security_level=encrypt",
+            "#  -o smtpd_sasl_auth_enable=yes",
+            "#  -o smtpd_reject_unlisted_recipient=no",
+            "#  -o smtpd_client_restrictions=one",
+            "#  -o smtpd_helo_restrictions=two",
+            "#  -o smtpd_sender_restrictions=three",
+            "#  -o smtpd_recipient_restrictions=",
+            "#  -o smtpd_relay_restrictions=permit_sasl_authenticated,reject",
+            "#  -o milter_macro_daemon_name=ORIGINATING"
+        ]))
+
+        m = postfix.Master(prototype_path=master_path)
+        m["submission"].modified = True
+        m["submission"].update(
+            ("syslog_name", "postfix/submission"),
+            ("smtpd_tls_security_level", "may"),
+            ("smtpd_tls_cert_file", "/foo/bar.pem"),
+            ("smtpd_sasl_auth_enable", "yes"),
+            ("smtpd_reject_unlisted_recipient", "no"),
+            ("smtpd_relay_restrictions", "permit_sasl_authenticated,reject"),
+            ("milter_macro_daemon_name", "ORIGINATING")
+        )
+        self.assertEqual(4, str(m).count("#"))
+        self.assertEqual(11, len(m["submission"].options))
+
+
+class ConfigTest(TestCase):
+    def test_options(self):
+        contents = "\n".join([
+            "foo=bar",
+            "baz = che",
+        ])
+        path = testdata.create_file("main.cf", contents)
+
+        conf = Config(prototype_path=path)
+        self.assertEqual(contents, str(conf))
+
+        contents = "\n".join([
+            "foo=bar",
+            "baz = che",
+        ])
+        conf["foo"] = "che"
+        conf["baz"] = "bar"
+
+        contents = "\n".join([
+            "foo = che",
+            "baz = bar",
+        ])
+        self.assertEqual(contents, str(conf))
+

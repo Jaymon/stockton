@@ -2,6 +2,7 @@ import os
 from distutils import dir_util
 import re
 import subprocess
+import shutil
 
 
 class Path(object):
@@ -91,12 +92,25 @@ class Filepath(Path):
         dest_path = self.normalize(dest_path)
         if os.path.isdir(dest_path):
             basename = self.name
-            dest_file = self.__class__(dest_path, basename)
+            dest_file = type(self)(dest_path, basename)
 
         else:
-            dest_file = self.__class__(dest_path)
+            dest_file = type(self)(dest_path)
 
         return shutil.copy(self.path, dest_file.path)
 
-    def backup(self, suffix=".bak"):
-        return self.copy("{}{}".format(self.path, suffix))
+    def backup(self, suffix=".bak", ignore_existing=True):
+        """backup the file to the same directory with given suffix
+
+        suffix -- str -- what will be appended to the file name (eg, foo.ext becomes
+            foo.ext.bak)
+        ignore_existing -- boolean -- if True overright an existing backup, if false
+            then don't backup if a backup file already exists
+        return -- instance -- an instance of Filepath with the backup filepath
+        """
+        path = "{}{}".format(self.path, suffix)
+        bak = type(self)(path)
+        if ignore_existing or not bak.exists():
+            self.copy(path)
+        return bak
+

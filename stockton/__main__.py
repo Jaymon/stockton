@@ -7,7 +7,7 @@ import subprocess
 import re
 
 from stockton import __version__
-from stockton.postfixconfig import Main, SMTPd
+from stockton.postfixconfig import Main, SMTPd, Master
 from stockton.path import Dirpath, Filepath
 import cli
 
@@ -43,7 +43,7 @@ class Command(object):
         self.assure_mailserver()
 
         cli.run("apt-get update")
-        cli.run("apt-get -y install --no-install-recommends postfix")
+        #cli.run("apt-get -y install --no-install-recommends postfix")
         cli.package("postfix")
 
     def configure_recv(self):
@@ -112,7 +112,7 @@ class Command(object):
         sasldb2.chown("postfix")
 
         s = SMTPd()
-        s.modify_all(
+        s.update(
             ("pwcheck_method", "auxprop"),
             ("auxprop_plugin", "sasldb"),
             ("mech_list", "PLAIN LOGIN CRAM-MD5 DIGEST-MD5 NTLM"),
@@ -127,7 +127,8 @@ class Command(object):
         certs_crt = Filepath(certs_d, "{}.crt".format(kwargs["domain"]))
         certs_pem = Filepath(certs_d, "{}.pem".format(kwargs["domain"]))
 
-        cli.run("apt-get -y install --only-upgrade openssl")
+        #cli.run("apt-get -y install --only-upgrade openssl")
+        cli.package("openssl", only_upgrade=True)
 
         cli.run(" ".join([
             "openssl req",
@@ -145,17 +146,36 @@ class Command(object):
             "-out {}".format(certs_crt)
         ]))
         cli.run("cat {} {} > {}".format(certs_crt, certs_key, certs_pem))
-        certs_pem.chmod(400)
-        certs_pem.chown("postfix")
+        #certs_pem.chmod(400)
+        #certs_pem.chown("postfix")
 
         # make backup of master.cf
-        master_f = Filepath("/etc/postfix/master.cf")
-        suffix = ".bak"
-        master_bak = Filepath("/etc/postfix/master.cf{}".format(suffix))
-        if not master_bak.exists():
-            master_f.backup(suffix)
+        master_f = Filepath(Master.dest_path)
+        master_bak = master_f.backup(ignore_existing=False)
 
         # add the config to master.cf to enable smtp sending
+        m = Master(prototype_path=master_bak.path)
+        m["submission"].modified = True
+        m["submission"].update(
+            ("syslog_name", "postfix/submission"),
+            ("smtpd_tls_security_level", "may"),
+            ("smtpd_tls_cert_file", certs_pem.path),
+            ("smtpd_sasl_auth_enable", "yes"),
+            ("smtpd_reject_unlisted_recipient", "no"),
+            ("smtpd_relay_restrictions", "permit_sasl_authenticated,reject"),
+            ("milter_macro_daemon_name", "ORIGINATING")
+        )
+        m.save()
+
+        cli.postfix_reload()
+
+    def configure_dkim(self):
+        cli.print_out("Configuring Postfix to use DKIM")
+        self.assure_domain()
+        self.assure_mailserver()
+        kwargs = self.kwargs
+
+        cli.package("opendkim", "opendkim-tools")
 
 def main():
     '''
@@ -164,7 +184,7 @@ def main():
     return -- integer -- the exit code
     '''
     parser = argparse.ArgumentParser(description='Setup and manage an email proxy')
-    names = ["setup", "configure-recv", "configure-send"]
+    names = ["setup", "configure-recv", "configure-send", "configure-dkim"]
     parser.add_argument('name', metavar='NAME', nargs='?', default="", help='the action to run', choices=names)
     parser.add_argument('--domain', dest='domain', default="", help='The email domain (eg, example.com)')
     parser.add_argument('--mailserver', dest='mailserver', default="", help='The domain mailserver (eg, mail.example.com)')
