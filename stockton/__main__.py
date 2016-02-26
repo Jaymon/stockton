@@ -7,7 +7,8 @@ import subprocess
 import re
 
 from stockton import __version__
-from stockton.postfixconfig import Main, SMTPd, Master
+from stockton.concur.formats.postfix import Main, SMTPd, Master
+from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.path import Dirpath, Filepath
 import cli
 
@@ -34,8 +35,11 @@ class Command(object):
             self.kwargs[key] = answer
 
     def setup(self):
-        return self.install()
-        return self.configure_main()
+        self.install()
+        self.configure_recv()
+        self.configure_send()
+        self.configure_dkim()
+        self.configure_srs()
 
     def install(self):
         cli.print_out("Installing Postfix")
@@ -84,7 +88,7 @@ class Command(object):
                 df.write("\n")
 
         m = Main()
-        m.modify_all(
+        m.update(
             ("myhostname", kwargs["mailserver"]),
             ("mydomain", kwargs["domain"]),
             ("myorigin", kwargs["domain"]),
@@ -122,7 +126,7 @@ class Command(object):
 
         certs_d = Dirpath("/etc/postfix/certs")
         certs_d.create()
-        certs_d.chown("postfix")
+        #certs_d.chown("postfix")
         certs_key = Filepath(certs_d, "{}.key".format(kwargs["domain"]))
         certs_crt = Filepath(certs_d, "{}.crt".format(kwargs["domain"]))
         certs_pem = Filepath(certs_d, "{}.pem".format(kwargs["domain"]))
@@ -171,11 +175,150 @@ class Command(object):
 
     def configure_dkim(self):
         cli.print_out("Configuring Postfix to use DKIM")
-        self.assure_domain()
-        self.assure_mailserver()
+        #self.assure_domain()
+        #self.assure_mailserver()
         kwargs = self.kwargs
 
         cli.package("opendkim", "opendkim-tools")
+
+        opendkim_d = Dirpath("/etc/opendkim")
+        opendkim_d.create()
+
+        keys_d = Dirpath(opendkim_d, "keys")
+        keys_d.create()
+
+        trustedhosts_f = opendkim_d.create_file("TrustedHosts", "\n".join([
+            "127.0.0.1",
+            "::1",
+            "localhost",
+            "192.168.0.1/24",
+            # TODO -- do we need to add public ip?
+        ]))
+
+        keytable_f = opendkim_d.create_file("KeyTable")
+        signingtable_f = opendkim_d.create_file("SigningTable")
+
+        # make backup of config
+        config_f = Filepath(OpenDKIM.dest_path)
+        config_bak = config_f.backup(ignore_existing=False)
+
+        c = OpenDKIM(prototype_path=config_bak.path)
+        c.update(
+            ("Canonicalization", "relaxed/simple"),
+            ("Mode", "sv"),
+            ("SubDomains", "yes"),
+            ("Syslog", "yes"),
+            ("LogWhy", "yes"),
+            ("UMask", "022"),
+            ("UserID", "opendkim:opendkim"),
+            ("KeyTable", keytable_f.path),
+            ("SigningTable", signingtable_f.path),
+            ("ExternalIgnoreList", trustedhosts_f.path),
+            ("InternalHosts", trustedhosts_f.path),
+            ("Socket", "inet:8891@localhost")
+        )
+        c.save()
+
+        m = Main(prototype_path=Main.dest_path)
+        m.update(
+            ("milter_default_action", "accept"),
+            ("milter_protocol", "6"),
+            ("smtpd_milters", "inet:localhost:8891"),
+            ("non_smtpd_milters", "inet:localhost:8891"),
+        )
+        m.save()
+
+        domains_f = Filepath("/etc/postfix/virtual/domains")
+        for domain in domains_f.lines():
+            self.add_dkim_domain(domain.strip())
+
+        cli.postfix_reload()
+        cli.opendkim_reload()
+
+    def add_dkim_domain(self, domain):
+        cli.print_out("Configuring DKIM for {}", domain)
+
+        opendkim_d = Dirpath("/etc/opendkim")
+        keys_d = Dirpath(opendkim_d, "keys")
+        keytable_f = Filepath(opendkim_d, "KeyTable")
+        signingtable_f = Filepath(opendkim_d, "SigningTable")
+        trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
+
+        cli.run("opendkim-genkey --domain={} --verbose --directory=\"{}\"".format(
+            domain.strip(),
+            keys_d.path
+        ))
+
+        private_f = Filepath(keys_d, "default.private")
+        private_f.rename("{}.private".format(domain))
+        private_f.chmod(600)
+        private_f.chown("opendkim:opendkim")
+
+        txt_f = Filepath(keys_d, "default.txt")
+        txt_f.rename("{}.txt".format(domain))
+
+        keytable_f.append("default._domainkey.{} {}:default:{}".format(
+            domain,
+            domain,
+            private_f.path
+        ))
+
+        signingtable_f.append("{} default._domainkey.{}".format(
+            domain,
+            domain
+        ))
+
+        trustedhosts_f.append("*.{}".format(domain))
+
+        #for f in keys.d.files("\.txt$"):
+        f = txt_f
+        cli.print_out("*" * 80)
+        cli.print_out("* YOU NEED TO ADD A DNS TXT RECORD FOR {}", domain)
+        cli.print_out("* {}", f.path)
+        cli.print_out("*" * 80)
+
+        contents = f.contents()
+        m = re.match("^(\S+)", contents)
+        cli.print_out("* NAME: {}", m.group(1))
+        cli.print_out("")
+
+        mv = re.search("v=\S+", contents)
+        mk = re.search("k=\S+", contents)
+        mp = re.search("p=[^\"]+", contents)
+        cli.print_out("* VALUE: {} {} {}", mv.group(0), mk.group(0), mp.group(0))
+
+        cli.print_out("")
+        cli.print_out("*" * 80)
+
+    def configure_srs(self):
+        cli.print_out("Configuring Postfix to use SRS")
+        kwargs = self.kwargs
+
+        cli.package("unzip", "cmake", "curl", "build-essential")
+
+        cli.run("curl -L -o postsrsd.zip https://github.com/roehling/postsrsd/archive/master.zip", cwd="/tmp")
+        cli.run("unzip -o postsrsd.zip", cwd="/tmp")
+
+        # Build and install.
+        build_d = Dirpath("/tmp/postsrsd-master/build")
+        build_d.create()
+
+        cli.run("cmake -DCMAKE_INSTALL_PREFIX=/usr ../", cwd=build_d.path)
+        cli.run("make", cwd=build_d.path)
+        cli.run("make install", cwd=build_d.path)
+
+        m = Main(prototype_path=Main.dest_path)
+        m.update(
+            ("sender_canonical_maps", "tcp:localhost:10001"),
+            ("sender_canonical_classes", "envelope_sender"),
+            ("recipient_canonical_maps", "tcp:localhost:10002"),
+            ("recipient_canonical_classes", "envelope_recipient,header_recipient")
+        )
+        m.save()
+
+        cli.srs_reload()
+        cli.postfix_reload()
+
 
 def main():
     '''
@@ -184,7 +327,7 @@ def main():
     return -- integer -- the exit code
     '''
     parser = argparse.ArgumentParser(description='Setup and manage an email proxy')
-    names = ["setup", "configure-recv", "configure-send", "configure-dkim"]
+    names = ["setup", "configure-recv", "configure-send", "configure-dkim", "configure-srs"]
     parser.add_argument('name', metavar='NAME', nargs='?', default="", help='the action to run', choices=names)
     parser.add_argument('--domain', dest='domain', default="", help='The email domain (eg, example.com)')
     parser.add_argument('--mailserver', dest='mailserver', default="", help='The domain mailserver (eg, mail.example.com)')

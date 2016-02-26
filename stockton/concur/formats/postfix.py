@@ -1,19 +1,22 @@
+"""
+Postfix specific configuration files, the file locations are for ubuntu 14.04
+"""
 import re
 
-from . import concur
+from . import generic
+from . import base
 
 
-class Main(concur.Config):
+class Main(generic.EqualConfig):
     dest_path = "/etc/postfix/main.cf"
+    # /usr/share/postfix/main.cf.dist has a rather complete example file
 
 
-class SMTPd(concur.Config):
-    option_divider = ":"
-    option_set_format = "{}{} {}"
+class SMTPd(generic.ColonConfig):
     dest_path = "/etc/postfix/sasl/smtpd.conf"
 
 
-class MasterSection(concur.ConfigSection):
+class MasterSection(base.ConfigSection):
     def _parse(self, fp):
         if not re.search("\s+-\s+", fp.line): return
 
@@ -72,7 +75,7 @@ class MasterSection(concur.ConfigSection):
         return s
 
 
-class MasterOption(concur.ConfigOption):
+class MasterOption(base.ConfigOption):
     def _parse(self, fp):
         if "-o" in fp.line:
             self.name = fp.line
@@ -84,19 +87,12 @@ class MasterOption(concur.ConfigOption):
             self.name = m.group(1)
             self.val = m.group(2)
 
-    def __str__(self):
-        s = ""
-        divider = self.config.option_divider
-        if self.modified:
-            s = "  -o {}{}{}".format(self.name, divider, self.val)
-
-        else:
-            s = super(MasterOption, self).__str__()
-
+    def format_set(self, name, divider, val):
+        s = "  -o {}{}{}".format(name, divider, val)
         return s
 
 
-class Master(concur.Config):
+class Master(base.Config):
     section_class = MasterSection
     option_class = MasterOption
     dest_path = "/etc/postfix/master.cf"

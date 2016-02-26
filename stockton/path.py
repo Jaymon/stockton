@@ -3,9 +3,14 @@ from distutils import dir_util
 import re
 import subprocess
 import shutil
+import codecs
 
 
 class Path(object):
+    @property
+    def directory(self):
+        return Dirpath(os.path.dirname(self.path))
+
     def __init__(self, *bits):
         self.path = ''
         if bits:
@@ -50,6 +55,15 @@ class Path(object):
             self.path
         ])
 
+    def move(self, path):
+        p = type(self)(path)
+        shutil.move(self.path, p.path)
+        self.path = p.path
+
+    def rename(self, name):
+        p = type(self)(self.directory, name)
+        return self.move(p)
+
 
 class Dirpath(Path):
     def create(self):
@@ -69,6 +83,17 @@ class Dirpath(Path):
 
             break
 
+    def create_file(self, name, contents=""):
+        """create the file with basename in this directory with contents"""
+        output_file = os.path.join(self.path, name)
+        oldmask = os.umask(0)
+        with codecs.open(output_file, encoding='utf-8', mode='w+') as f:
+            f.truncate(0)
+            f.seek(0)
+            f.write(contents)
+        oldmask = os.umask(oldmask)
+
+        return Filepath(output_file)
 
 class Filepath(Path):
     @property
@@ -83,6 +108,11 @@ class Filepath(Path):
     def contents(self):
         with open(self.path, "r") as f:
             return f.read()
+
+    def lines(self):
+        with open(self.path, "r") as f:
+            for line in f:
+                yield line
 
     def exists(self):
         return os.path.isfile(self.path)
@@ -113,4 +143,8 @@ class Filepath(Path):
         if ignore_existing or not bak.exists():
             self.copy(path)
         return bak
+
+    def append(self, contents):
+        with codecs.open(self.path, encoding='utf-8', mode='a') as f:
+            f.write(contents)
 

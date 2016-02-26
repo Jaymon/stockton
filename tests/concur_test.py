@@ -2,8 +2,9 @@ from unittest import TestCase
 
 import testdata
 
-from stockton import postfixconfig as postfix
-from stockton.concur import ConfigFile, Config, ConfigSection
+from stockton.concur.formats.base import ConfigFile, Config, ConfigSection
+from stockton.concur.formats import postfix
+from stockton.concur.formats import generic
 
 
 def setUpModule():
@@ -14,45 +15,63 @@ def tearDownModule():
     pass
 
 
-class ConfigFileTest(TestCase):
-    def test_replay(self):
-        path = testdata.create_file("counting", "\n".join([str(x) for x in range(5)]))
+# class ConfigFileTest(TestCase):
+#     def test_replay(self):
+#         path = testdata.create_file("counting", "\n".join([str(x) for x in range(5)]))
+# 
+#         class RConSec(ConfigSection):
+#             def _parse(self, fp):
+#                 self.name = fp.line
+# 
+#         class RCon(Config):
+#             parse_class = RConSec
+# 
+# 
+#         fp = ConfigFile(path, RCon())
+# 
+#         c = fp.next()
+#         self.assertEqual(0, int(c.line))
+# 
+#         c = fp.next()
+#         self.assertEqual(1, int(c.line))
+# 
+#         fp.replay(c, fp.line, fp.line_number)
+#         c = fp.next()
+#         self.assertEqual(1, int(c.line))
+# 
+#         c = fp.next()
+#         self.assertEqual(2, int(c.line))
+# 
+#         c = fp.next()
+#         self.assertEqual(3, int(c.line))
+# 
+#         fp.replay(c, fp.line, fp.line_number)
+#         c = fp.next()
+#         self.assertEqual(3, int(c.line))
+# 
+#         c = fp.next()
+#         self.assertEqual(4, int(c.line))
+# 
+#         with self.assertRaises(StopIteration):
+#             fp.next()
 
-        class RConSec(ConfigSection):
-            def _parse(self, fp):
-                self.name = fp.line
 
-        class RCon(Config):
-            parse_class = RConSec
+class SpaceTest(TestCase):
+    def test__parse(self):
+        path = testdata.create_file("space.conf", "\n".join([
+            "# Log to syslog",
+            "Syslog			yes",
+            "# Required to use local socket with MTAs that access the socket as a non-",
+            "# privileged user (e.g. Postfix)",
+            "UMask			002",
+            "",
+            "# Sign for example.com with key in /etc/mail/dkim.key using",
+            "# selector '2007' (e.g. 2007._domainkey.example.com)",
+            "#Domain			example.com",
+        ]))
 
-
-        fp = ConfigFile(path, RCon())
-
-        c = fp.next()
-        self.assertEqual(0, int(c.line))
-
-        c = fp.next()
-        self.assertEqual(1, int(c.line))
-
-        fp.replay(c, fp.line, fp.line_number)
-        c = fp.next()
-        self.assertEqual(1, int(c.line))
-
-        c = fp.next()
-        self.assertEqual(2, int(c.line))
-
-        c = fp.next()
-        self.assertEqual(3, int(c.line))
-
-        fp.replay(c, fp.line, fp.line_number)
-        c = fp.next()
-        self.assertEqual(3, int(c.line))
-
-        c = fp.next()
-        self.assertEqual(4, int(c.line))
-
-        with self.assertRaises(StopIteration):
-            fp.next()
+        c = generic.SpaceConfig(prototype_path=path)
+        self.assertEqual(3, len(c.options))
 
 
 class PostfixTest(TestCase):

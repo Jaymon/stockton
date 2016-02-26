@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import re
 
 
 def ask(question):
@@ -62,6 +63,24 @@ def postfix_reload():
 
     finally:
         run("postfix reload")
+
+
+def opendkim_reload():
+    output = run("/etc/init.d/opendkim status", capture_output=True)
+    if re.search("opendkim\s+is\s+running", output, flags=re.I):
+        run("/etc/init.d/opendkim start")
+
+    else:
+        run("/etc/init.d/opendkim restart")
+
+
+def srs_reload():
+    output = run("status postsrsd", capture_output=True)
+    if re.search("stop", output, flags=re.I):
+        run("start postsrsd")
+
+    else:
+        run("restart postsrsd")
 
 
 def print_err(format_str, *args, **kwargs):
