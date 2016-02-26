@@ -16,7 +16,7 @@ setup(
     description='Easy peasy domain proxy',
     author='Jay Marcyes',
     author_email='jay@marcyes.com',
-    #url='http://github.com/firstopinion/{}'.format(name),
+    url='http://github.com/jaymon/{}'.format(name),
     packages=find_packages(),
     #license="MIT",
     #install_requires=[''],
