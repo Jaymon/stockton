@@ -9,6 +9,7 @@ import re
 from stockton import __version__
 from stockton.concur.formats.postfix import Main, SMTPd, Master
 from stockton.concur.formats.opendkim import OpenDKIM
+from stockton.concur.formats.generic import SpaceConfig
 from stockton.path import Dirpath, Filepath
 import cli
 
@@ -378,15 +379,23 @@ class Command(object):
 
         cli.print_out("configuring main")
 
-        helo_f = Filepath("/etc/postfix/helo.regexp")
-        helo_f.write("\n".join([
-            "/^{}$/\t\t550 Don't use my own hostname".format(re.escape(kwargs["mailserver"])),
-            "/^{}$/\t\t550 Don't use my own IP address".format(re.escape(external_ip)),
-            "/^\[{}\]$/\t\t550 Don't use my own IP address".format(re.escape(external_ip)),
-            "/^[0-9.]+$/\t\t\t550 Your software is not RFC 2821 compliant",
-            "/^[0-9]+(\.[0-9]+){3}$/\t\t550 Your software is not RFC 2821 compliant",
-            ""
-        ]))
+        helo_f = SpaceConfig(dest_path="/etc/postfix/helo.regexp")
+        helo_f.update(
+            ("/^{}$/".format(re.escape(kwargs["mailserver"])), "550 Don't use my own hostname"),
+            ("/^{}$/".format(re.escape(external_ip)), "550 Don't use my own IP address"),
+            ("/^\[{}\]$/".format(re.escape(external_ip)), "550 Don't use my own IP address"),
+            ("/^[0-9.]+$/", "550 Your software is not RFC 2821 compliant"),
+            ("/^[0-9]+(\.[0-9]+){3}$/", "550 Your software is not RFC 2821 compliant")
+        )
+#         helo_f = Filepath("/etc/postfix/helo.regexp")
+#         helo_f.write("\n".join([
+#             "/^{}$/\t\t550 Don't use my own hostname".format(re.escape(kwargs["mailserver"])),
+#             "/^{}$/\t\t550 Don't use my own IP address".format(re.escape(external_ip)),
+#             "/^\[{}\]$/\t\t550 Don't use my own IP address".format(re.escape(external_ip)),
+#             "/^[0-9.]+$/\t\t\t550 Your software is not RFC 2821 compliant",
+#             "/^[0-9]+(\.[0-9]+){3}$/\t\t550 Your software is not RFC 2821 compliant",
+#             ""
+#         ]))
 
         main_f = Filepath(Main.dest_path)
         main_bak = main_f.backup(suffix=".bak.lockdown", ignore_existing=False)
@@ -417,9 +426,10 @@ class Command(object):
                 "reject_unknown_reverse_client_hostname",
                 "reject_rbl_client zen.spamhaus.org",
                 "reject_rbl_client bl.spamcop.net",
-                "reject_rbl_client cbl.abuseat.org",
+                "reject_rbl_client b.barracudacentral.org",
+                #"reject_rbl_client cbl.abuseat.org",
                 #"reject_rbl_client dul.dnsbl.sorbs.net,",
-                "reject_rhsbl_sender dsn.rfc-ignorant.org",
+                #"reject_rhsbl_sender dsn.rfc-ignorant.org",
                 "permit"
             ])),
             ("smtpd_error_sleep_time", "1s"),
@@ -427,6 +437,11 @@ class Command(object):
             ("smtpd_hard_error_limit", "20")
         )
         m.save()
+
+        # dbl.spamhaus.org
+        # xbl.spamhaus.org
+        # b.barracudacentral.org
+        # http://serverfault.com/a/514830/190381
 
         cli.print_out("reloading postfix")
         cli.postfix_reload()
@@ -463,10 +478,11 @@ def main():
     parser.add_argument('name', metavar='NAME', nargs='?', default="", help='the action to run', choices=names)
     parser.add_argument('--domain', dest='domain', default="", help='The email domain (eg, example.com)')
     parser.add_argument('--mailserver', dest='mailserver', default="", help='The domain mailserver (eg, mail.example.com)')
-    parser.add_argument('--proxy-domains', dest='proxy_domains', default="", help='The directory containing virtual email mappings')
+    parser.add_argument('--domain-dir', dest='domains_dir', default="", help='The directory containing virtual email mapping files')
+    parser.add_argument('--domain-file', dest='domains_file', default="", help='A file containing virtual email mappings')
     parser.add_argument('--smtp-password', dest='smtp_password', default="", help='The smtp password')
 #     parser.add_argument('--debug', dest='debug', action='store_true', help='print debugging info')
-#     parser.add_argument("-v", "--version", action='version', version="%(prog)s {}".format(__version__))
+    parser.add_argument("-v", "--version", action='version', version="%(prog)s {}".format(__version__))
 #     parser.add_argument('--all', dest='run_all', action='store_true', help='run all tests if no NAME specified')
 
     # https://docs.python.org/2/library/unittest.html#command-line-options
@@ -482,10 +498,7 @@ def main():
     c = Command(args.name)
     kwargs = vars(args)
     c.run_name(**kwargs)
-
-    ret_code = 0
-
-    return ret_code
+    return 0
 
 
 sys.exit(main())
