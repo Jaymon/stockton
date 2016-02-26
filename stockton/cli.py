@@ -13,6 +13,11 @@ def ask(question):
     return answer
 
 
+def ip():
+    external_ip = run("wget -qO- http://ifconfig.me/ip", capture_output=True)
+    return external_ip.strip()
+
+
 def run(cmd, capture_output=False, **process_kwargs):
     # we will allow overriding of these values
     output = ""

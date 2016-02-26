@@ -1,5 +1,9 @@
 """
 Generic starter config parsers for a variety of different file formats
+
+https://en.wikipedia.org/wiki/Configuration_file
+http://stackoverflow.com/questions/1925305/best-config-file-format
+
 """
 import re
 

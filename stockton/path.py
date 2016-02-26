@@ -148,3 +148,9 @@ class Filepath(Path):
         with codecs.open(self.path, encoding='utf-8', mode='a') as f:
             f.write(contents)
 
+    def write(self, contents):
+        with codecs.open(self.path, encoding='utf-8', mode='w+') as f:
+            f.truncate(0)
+            f.seek(0)
+            f.write(contents)
+
