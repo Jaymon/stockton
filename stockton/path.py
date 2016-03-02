@@ -4,6 +4,9 @@ import re
 import subprocess
 import shutil
 import codecs
+import datetime
+import tempfile
+from contextlib import contextmanager
 
 
 class Path(object):
@@ -95,6 +98,7 @@ class Dirpath(Path):
 
         return Filepath(output_file)
 
+
 class Filepath(Path):
     @property
     def name(self):
@@ -153,4 +157,40 @@ class Filepath(Path):
             f.truncate(0)
             f.seek(0)
             f.write(contents)
+
+    def create(self):
+        """touch the file"""
+        # http://stackoverflow.com/a/1160227/5006
+        with open(self.path, 'a'):
+            os.utime(self.path, None)
+
+    def contains(self, regex, flags=0):
+        m = re.search(regex, self.contents(), flags=flags)
+        return True if m else False
+
+
+class Sentinal(object):
+    def __init__(self, name):
+        self.name = name
+        now = datetime.datetime.utcnow()
+        self.year = now.strftime("%Y")
+        self.month = now.strftime("%m")
+        tmp = tempfile.gettempdir()
+        self.f = Filepath(tmp, "{}-{}-{}".format(self.name, self.year, self.month))
+
+    def exists(self):
+        return self.f.exists()
+
+    def create(self):
+        self.f.create()
+
+    @classmethod
+    @contextmanager
+    def check(cls, name):
+        """yields a boolean, execute to check if the block whould be run"""
+        instance = cls(name)
+        exists = instance.exists()
+        yield not exists
+        if not exists:
+            instance.create()
 

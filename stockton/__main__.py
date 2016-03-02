@@ -6,12 +6,104 @@ import os
 import subprocess
 import re
 
-from stockton import __version__
+from captain import echo, exit as console, ArgError
+from captain.decorators import arg
+
+from stockton import __version__, cli
 from stockton.concur.formats.postfix import Main, SMTPd, Master
 from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.concur.formats.generic import SpaceConfig
-from stockton.path import Dirpath, Filepath
-import cli
+from stockton.path import Dirpath, Filepath, Sentinal
+
+
+@arg('--domain', dest='domain', default="", help='The email domain (eg, example.com)')
+@arg('--mailserver', dest='mailserver', default="", help='The domain mailserver (eg, mail.example.com)')
+def main_setup():
+    # TODO -- if postfix is already installed then bak files need to be cleared, etc
+    # the key is re-running should be idempotent
+
+    main_install()
+    main_configure_recv()
+    self.configure_send()
+    self.configure_dkim()
+    self.configure_srs()
+    #self.lockdown()
+
+
+def main_install():
+    echo.h2("Installing Postfix")
+
+    with Sentinal.check("apt-get-update") as execute:
+        if execute:
+            cli.run("apt-get update")
+
+    #cli.run("apt-get -y install --no-install-recommends postfix")
+
+    # http://serverfault.com/questions/143968/automate-the-installation-of-postfix-on-ubuntu
+    os.environ["DEBIAN_FRONTEND"] = "noninteractive"
+    #cli.run("debconf-set-selections <<< \"postfix postfix/main_mailer_type string 'No configuration'\"")
+
+    cli.package("postfix")
+
+
+@arg('--domain', help='The email domain (eg, example.com)')
+@arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
+@arg('--proxy-domains', default="", help='The directory containing domain configuration files')
+@arg('--proxy-email', default="", help='The final destination email address')
+def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
+    # http://www.postfix.org/VIRTUAL_README.html
+
+    # we make sure we have all the information we need
+    if not proxy_domains and not proxy_email:
+        raise ArgError("One of --proxy-domains or --proxy-email needs to be set")
+
+    echo.h2("Configuring Postfix to receive emails")
+
+    # create directory /etc/postfix/virtual
+    virtual_d = Dirpath("/etc/postfix/virtual")
+    echo.h3("Creating {}", virtual_d)
+    virtual_d.create()
+
+    # gather domains
+    echo.h3("Compiling proxy domains...")
+    domains = set()
+    addresses_f = Filepath(virtual_d, "addresses")
+    with open(addresses_f.path, "w") as af:
+        af.truncate(0)
+        if proxy_domains:
+            domains_d = Dirpath(proxy_domains)
+            for f in domains_d.files():
+                domain = f.name
+                domain = re.sub("\.txt$", "", domain, flags=re.I)
+                echo.out("Compiling proxy addresses from {}", domain)
+                af.write(f.contents())
+                af.write("\n\n")
+                domains.add(domain)
+
+        if proxy_email:
+            if domain not in domains:
+                echo.out("Adding catchall for {} routing to {}", domain, proxy_email)
+                af.write("@{} {}\n".format(domain, proxy_email))
+                domains.add(domain)
+
+    domains_f = Filepath(virtual_d, "domains")
+    with open(domains_f.path, "w") as df:
+        for domain in domains:
+            df.write(domain)
+            df.write("\n")
+
+    m = Main()
+    m.update(
+        ("myhostname", mailserver),
+        ("mydomain", domain),
+        ("myorigin", domain),
+        ("virtual_alias_domains", domains_f.path),
+        ("virtual_alias_maps", "hash:{}".format(addresses_f.path))
+    )
+    m.save()
+
+    cli.run("postmap {}".format(addresses_f))
+    cli.postfix_reload()
 
 
 class Command(object):
@@ -34,85 +126,6 @@ class Command(object):
         if key not in self.kwargs or not self.kwargs[key]:
             answer = cli.ask(prompt)
             self.kwargs[key] = answer
-
-    def setup(self):
-        # TODO -- if postfix is already installed then bak files need to be cleared, etc
-        # the key is re-running should be idempotent
-
-        self.install()
-        self.configure_recv()
-        self.configure_send()
-        self.configure_dkim()
-        self.configure_srs()
-        #self.lockdown()
-
-    def install(self):
-        cli.print_out("Installing Postfix")
-        self.assure_domain()
-        self.assure_mailserver()
-
-        cli.run("apt-get update")
-        #cli.run("apt-get -y install --no-install-recommends postfix")
-
-        # http://serverfault.com/questions/143968/automate-the-installation-of-postfix-on-ubuntu
-        os.environ["DEBIAN_FRONTEND"] = "noninteractive"
-        #cli.run("debconf-set-selections <<< \"postfix postfix/main_mailer_type string 'No configuration'\"")
-
-        cli.package("postfix")
-
-    def configure_recv(self):
-        # http://www.postfix.org/VIRTUAL_README.html
-
-        cli.print_out("Configuring Postfix to receive emails")
-        self.assure_domain()
-        self.assure_mailserver()
-        #self.assure_kwarg("proxy_domains", "Need proxy_domains config directory")
-        kwargs = self.kwargs
-
-        # create directory /etc/postfix/virtual
-        virtual_d = Dirpath("/etc/postfix/virtual")
-        cli.print_out("Creating {}", virtual_d)
-        virtual_d.create()
-
-        # gather domains
-        domains = set()
-        cli.print_out("Compiling proxy domains...")
-        addresses_f = Filepath(virtual_d, "addresses")
-        with open(addresses_f.path, "w") as af:
-            p = kwargs.get("proxy_domains", "")
-            if p:
-                domains_d = Dirpath(kwargs["proxy_domains"])
-                for f in domains_d.files():
-                    domain = f.name
-                    domain = re.sub("\.txt$", "", domain, flags=re.I)
-                    cli.print_out("Compiling proxy addresses from {}", domain)
-                    af.write(f.contents())
-                    af.write("\n\n")
-                    domains.add(domain)
-
-            if kwargs["domain"] not in domains:
-                self.assure_kwarg("final_destination", "Enter the final destination email address (eg, yourname@gmail.com)")
-                af.write("@{} {}\n".format(kwargs["domain"], kwargs["final_destination"]))
-                domains.add(kwargs["domain"])
-
-        domains_f = Filepath(virtual_d, "domains")
-        with open(domains_f.path, "w") as df:
-            for domain in domains:
-                df.write(domain)
-                df.write("\n")
-
-        m = Main()
-        m.update(
-            ("myhostname", kwargs["mailserver"]),
-            ("mydomain", kwargs["domain"]),
-            ("myorigin", kwargs["domain"]),
-            ("virtual_alias_domains", domains_f.path),
-            ("virtual_alias_maps", "hash:{}".format(addresses_f.path))
-        )
-        m.save()
-
-        cli.run("postmap {}".format(addresses_f))
-        cli.postfix_reload()
 
     def configure_send(self):
 
@@ -501,5 +514,4 @@ def main():
     return 0
 
 
-sys.exit(main())
-
+console()
