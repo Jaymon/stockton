@@ -85,6 +85,19 @@ class ConfigureTest(TestCase):
         f = Filepath(Main.dest_path)
         self.assertFalse(f.contains("foobar"))
 
+    def test_send(self):
+        cli.package("cyrus-clients-2.4") # for smtptest
+
+        s = Stockton("configure_send")
+        arg_str = "--domain=example.com --mailserver=mail.example.com --smtp-password=1234 --state=CA --city=\"San Francisco\""
+        r = s.run(arg_str)
+
+        r = cli.run(
+            "echo QUIT | smtptest -a smtp@mail.example.com -w 1234 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
+            capture_output=True
+        )
+        self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
+
 
 
 

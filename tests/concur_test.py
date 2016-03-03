@@ -75,6 +75,24 @@ class SpaceTest(TestCase):
 
 
 class PostfixTest(TestCase):
+    def test_master_multiple_same_name(self):
+        contents = "\n".join([
+            "smtp      inet  n       -       -       -       -       smtpd",
+            "#smtp      inet  n       -       -       -       1       postscreen",
+            "smtp      unix  -       -       -       -       -       smtp",
+        ])
+        master_path = testdata.create_file("master.cf", contents)
+
+        master = postfix.Master(prototype_path=master_path)
+        for smtp in master["smtp"]:
+            smtp.chroot = "n"
+
+        contents = "\n".join([
+            "smtp      inet  n       -       n       -       -       smtpd",
+            "smtp      inet  n       -       n       -       1       postscreen",
+            "smtp      unix  -       -       n       -       -       smtp",
+        ])
+        self.assertEqual(contents, str(master))
 
     def test_master_option(self):
         class FP(object):

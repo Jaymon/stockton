@@ -6,6 +6,7 @@ configuration parser, the classes in this module are the support classes for the
 generics
 """
 import re
+from collections import defaultdict
 
 
 class ConfigBase(object):
@@ -43,15 +44,18 @@ class ConfigBase(object):
             super(ConfigBase, self).__setattr__(k, v)
 
     def __getitem__(self, k):
-        line_number = -1
+        line_numbers = []
         if k in self.sections:
-            line_number = self.sections[k]
+            line_numbers = self.sections[k]
 
         elif k in self.options:
-            line_number = self.options[k]
+            line_numbers = self.options[k]
 
-        if line_number >= 0:
-            v = self.lines[line_number]
+        if len(line_numbers) == 1:
+            v = self.lines[line_numbers[0]]
+
+        elif len(line_numbers) > 1:
+            v = [self.lines[ln] for ln in line_numbers]
 
         else:
             raise KeyError("no section or option {}".format(k))
@@ -252,17 +256,17 @@ class Config(ConfigBase):
 
     def parse(self):
         fp = self.create_file()
-        self.sections = {}
-        self.options = {}
+        self.sections = defaultdict(list)
+        self.options = defaultdict(list)
         self.lines = []
 
         for line_number, c in enumerate(fp):
             if isinstance(c, self.section_class):
-                self.sections[c.name] = line_number
+                self.sections[c.name].append(line_number)
                 self.lines.append(c)
 
             elif isinstance(c, self.option_class):
-                self.options[c.name] = line_number
+                self.options[c.name].append(line_number)
                 self.lines.append(c)
  
             elif isinstance(c, self.line_class):

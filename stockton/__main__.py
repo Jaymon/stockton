@@ -102,8 +102,102 @@ def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
     )
     m.save()
 
+    # make backup of master.cf
+    master_f = Filepath(Master.dest_path)
+    master_bak = master_f.backup(ignore_existing=False)
+
     cli.run("postmap {}".format(addresses_f))
     cli.postfix_reload()
+
+
+@arg('--domain', help='The email domain (eg, example.com)')
+@arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
+@arg('--smtp-username', default="smtp", help='smtp username for sending emails')
+@arg('--smtp-password', help='smtp password for sending emails')
+@arg('--country', default="US", help='country for ssl certificate')
+@arg('--state', help='state for ssl certificate')
+@arg('--city', help='city for ssl certificate')
+def main_configure_send(domain, mailserver, smtp_username, smtp_password, country, state, city):
+
+    # https://help.ubuntu.com/lts/serverguide/postfix.html#postfix-sasl
+    # http://www.postfix.org/SASL_README.html
+
+    echo.h2("Configuring Postfix to send emails")
+
+    cli.package("sasl2-bin", "libsasl2-modules")
+
+    cli.run("echo \"{}\" | saslpasswd2 -c -u {} {} -p".format(smtp_password, mailserver, smtp_username))
+
+    sasldb2 = Filepath("/etc/sasldb2")
+    sasldb2.chmod(400)
+    sasldb2.chown("postfix")
+
+    s = SMTPd()
+    s.update(
+        ("pwcheck_method", "auxprop"),
+        ("auxprop_plugin", "sasldb"),
+        ("mech_list", "PLAIN LOGIN CRAM-MD5 DIGEST-MD5 NTLM"),
+        ("log_level", "7")
+    )
+    s.save()
+
+    certs_d = Dirpath("/etc/postfix/certs")
+    certs_d.create()
+    certs_key = Filepath(certs_d, "{}.key".format(domain))
+    certs_crt = Filepath(certs_d, "{}.crt".format(domain))
+    certs_pem = Filepath(certs_d, "{}.pem".format(domain))
+
+    cli.package("openssl", only_upgrade=True)
+
+    # http://superuser.com/questions/226192/openssl-without-prompt
+    cli.run(" ".join([
+        "openssl req",
+        "-new",
+        "-newkey rsa:4096",
+        # openssl 1.0.2+ only, comment out above line and uncomment next 2
+        #"-newkey ec",
+        #"-pkeyopt ec_paramgen_curve:prime256v1",
+        "-days 3650",
+        "-nodes",
+        "-x509",
+        "-subj \"/C={}/ST={}/L={}/O={}/CN={}\"".format(
+            country,
+            state,
+            city,
+            mailserver,
+            mailserver
+        ),
+        "-keyout {}".format(certs_key),
+        "-out {}".format(certs_crt)
+    ]))
+    cli.run("cat {} {} > {}".format(certs_crt, certs_key, certs_pem))
+
+    # make backup of master.cf if it doesn't already exist
+    master_f = Filepath(Master.dest_path)
+    master_bak = master_f.backup(ignore_existing=False)
+
+    # add the config to master.cf to enable smtp sending
+    m = Master(prototype_path=master_bak.path)
+    for smtp in m["smtp"]:
+        if smtp.cmd == "smtpd":
+            smtp.chroot = "n"
+
+    m["submission"].chroot = "n"
+    m["submission"].update(
+        ("syslog_name", "postfix/submission"),
+        ("smtpd_tls_security_level", "may"),
+        ("smtpd_tls_cert_file", certs_pem.path),
+        ("smtpd_sasl_auth_enable", "yes"),
+        ("smtpd_reject_unlisted_recipient", "no"),
+        ("smtpd_relay_restrictions", "permit_sasl_authenticated,reject"),
+        ("milter_macro_daemon_name", "ORIGINATING")
+    )
+    m.save()
+
+    cli.postfix_reload()
+
+
+
 
 
 class Command(object):
@@ -126,85 +220,6 @@ class Command(object):
         if key not in self.kwargs or not self.kwargs[key]:
             answer = cli.ask(prompt)
             self.kwargs[key] = answer
-
-    def configure_send(self):
-
-
-        # https://help.ubuntu.com/lts/serverguide/postfix.html#postfix-sasl
-        # http://www.postfix.org/SASL_README.html
-
-        cli.print_out("Configuring Postfix to send emails")
-        self.assure_domain()
-        self.assure_mailserver()
-        kwargs = self.kwargs
-
-        cli.package("sasl2-bin", "libsasl2-modules")
-        self.assure_kwarg("smtp_password", "Password for smtp access for {}".format(kwargs["domain"]))
-
-        cli.run("echo \"{}\" | saslpasswd2 -c -u {} smtp -p".format(kwargs["smtp_password"], kwargs["domain"]))
-
-        sasldb2 = Filepath("/etc/sasldb2")
-        sasldb2.chmod(400)
-        sasldb2.chown("postfix")
-
-        s = SMTPd()
-        s.update(
-            ("pwcheck_method", "auxprop"),
-            ("auxprop_plugin", "sasldb"),
-            ("mech_list", "PLAIN LOGIN CRAM-MD5 DIGEST-MD5 NTLM"),
-            ("log_level", "7")
-        )
-        s.save()
-
-        certs_d = Dirpath("/etc/postfix/certs")
-        certs_d.create()
-        #certs_d.chown("postfix")
-        certs_key = Filepath(certs_d, "{}.key".format(kwargs["domain"]))
-        certs_crt = Filepath(certs_d, "{}.crt".format(kwargs["domain"]))
-        certs_pem = Filepath(certs_d, "{}.pem".format(kwargs["domain"]))
-
-        #cli.run("apt-get -y install --only-upgrade openssl")
-        cli.package("openssl", only_upgrade=True)
-
-        # http://superuser.com/questions/226192/openssl-without-prompt
-        cli.run(" ".join([
-            "openssl req",
-            "-new",
-            "-newkey rsa:4096",
-            # openssl 1.0.2+ only, comment out above line and uncomment next 2
-            #"-newkey ec",
-            #"-pkeyopt ec_paramgen_curve:prime256v1",
-            "-days 3650",
-            "-nodes",
-            "-x509",
-            # TODO -- make country, state and city set on cli
-            "-subj \"/C=US/ST=CA/L=San Francisco/O={0}/CN={0}\"".format(kwargs["mailserver"]),
-            "-keyout {}".format(certs_key),
-            "-out {}".format(certs_crt)
-        ]))
-        cli.run("cat {} {} > {}".format(certs_crt, certs_key, certs_pem))
-        #certs_pem.chmod(400)
-        #certs_pem.chown("postfix")
-
-        # make backup of master.cf
-        master_f = Filepath(Master.dest_path)
-        master_bak = master_f.backup(ignore_existing=False)
-
-        # add the config to master.cf to enable smtp sending
-        m = Master(prototype_path=master_bak.path)
-        m["submission"].modified = True
-        m["submission"].update(
-            ("syslog_name", "postfix/submission"),
-            ("smtpd_tls_security_level", "may"),
-            ("smtpd_tls_cert_file", certs_pem.path),
-            ("smtpd_sasl_auth_enable", "yes"),
-            ("smtpd_reject_unlisted_recipient", "no"),
-            ("smtpd_relay_restrictions", "permit_sasl_authenticated,reject"),
-            ("milter_macro_daemon_name", "ORIGINATING")
-        )
-        m.save()
-
-        cli.postfix_reload()
 
     def configure_dkim(self):
 
