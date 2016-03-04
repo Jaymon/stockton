@@ -13,10 +13,12 @@ class ConfigBase(object):
     """the base common class for most of the other more useful classes"""
     def __init__(self, config):
         self.config = config
-        self.sections = {}
-        self.options = {}
-        self.lines = []
+        self.reset()
 
+    def reset(self):
+        self.sections = defaultdict(list)
+        self.options = defaultdict(list)
+        self.lines = []
         self.name = ""
 
     def parse(self, fp):
@@ -66,14 +68,15 @@ class ConfigBase(object):
         if k in self.sections:
             raise ValueError("you cannot modify sections using dict notation")
 
-        line_number = -1
+        line_numbers = []
 
         if k in self.options:
-            line_number = self.options[k]
+            line_numbers = self.options[k]
 
-        if line_number >= 0:
-            option = self.lines[line_number]
-            option.val = v
+        if len(line_numbers) > 0:
+            for line_number in line_numbers:
+                option = self.lines[line_number]
+                option.val = v
 
         else:
             try:
@@ -83,7 +86,7 @@ class ConfigBase(object):
 
             option.name = k
             option.val = v
-            self.options[option.name] = len(self.lines)
+            self.options[option.name].append(len(self.lines))
             self.lines.append(option)
 
 
@@ -161,10 +164,11 @@ class ConfigFile(object):
     def __init__(self, path, config):
         self.path = path
         self.config = config
-        # we load the whole config file into memory because I hate memory and to
-        # punish it we like to use lots of it. Also, I was having some difficulty
+        # we load the whole config file into memory because we hate memory and to
+        # punish it we like to use lots of it. Also, we were having some difficulty
         # getting some conf files to parse correctly without being able to seek and
-        # stuff to certain lines and replay parts of the file
+        # stuff to certain lines and replay parts of the file and this was the 
+        # easiest solution to that problem
         with open(self.path, "r") as fp:
             self.lines = fp.readlines()
             self.count = len(self.lines)
@@ -231,9 +235,7 @@ class Config(ConfigBase):
     prototype_path = ""
 
     def __init__(self, dest_path="", prototype_path=""):
-        self.sections = {}
-        self.options = {}
-        self.lines = []
+        self.reset()
 
         if prototype_path:
             self.prototype_path = prototype_path
@@ -256,9 +258,7 @@ class Config(ConfigBase):
 
     def parse(self):
         fp = self.create_file()
-        self.sections = defaultdict(list)
-        self.options = defaultdict(list)
-        self.lines = []
+        self.reset()
 
         for line_number, c in enumerate(fp):
             if isinstance(c, self.section_class):

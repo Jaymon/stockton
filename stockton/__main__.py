@@ -24,7 +24,7 @@ def main_setup():
 
     main_install()
     main_configure_recv()
-    self.configure_send()
+    main_configure_send()
     self.configure_dkim()
     self.configure_srs()
     #self.lockdown()
@@ -39,8 +39,6 @@ def main_install():
 
     #cli.run("apt-get -y install --no-install-recommends postfix")
 
-    # http://serverfault.com/questions/143968/automate-the-installation-of-postfix-on-ubuntu
-    os.environ["DEBIAN_FRONTEND"] = "noninteractive"
     #cli.run("debconf-set-selections <<< \"postfix postfix/main_mailer_type string 'No configuration'\"")
 
     cli.package("postfix")
@@ -63,34 +61,8 @@ def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
     virtual_d = Dirpath("/etc/postfix/virtual")
     echo.h3("Creating {}", virtual_d)
     virtual_d.create()
-
-    # gather domains
-    echo.h3("Compiling proxy domains...")
-    domains = set()
-    addresses_f = Filepath(virtual_d, "addresses")
-    with open(addresses_f.path, "w") as af:
-        af.truncate(0)
-        if proxy_domains:
-            domains_d = Dirpath(proxy_domains)
-            for f in domains_d.files():
-                domain = f.name
-                domain = re.sub("\.txt$", "", domain, flags=re.I)
-                echo.out("Compiling proxy addresses from {}", domain)
-                af.write(f.contents())
-                af.write("\n\n")
-                domains.add(domain)
-
-        if proxy_email:
-            if domain not in domains:
-                echo.out("Adding catchall for {} routing to {}", domain, proxy_email)
-                af.write("@{} {}\n".format(domain, proxy_email))
-                domains.add(domain)
-
     domains_f = Filepath(virtual_d, "domains")
-    with open(domains_f.path, "w") as df:
-        for domain in domains:
-            df.write(domain)
-            df.write("\n")
+    addresses_f = Filepath(virtual_d, "addresses")
 
     m = Main()
     m.update(
@@ -102,11 +74,12 @@ def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
     )
     m.save()
 
+    add_postfix_domains(domain, proxy_domains, proxy_email)
+
     # make backup of master.cf
     master_f = Filepath(Master.dest_path)
     master_bak = master_f.backup(ignore_existing=False)
 
-    cli.run("postmap {}".format(addresses_f))
     cli.postfix_reload()
 
 
@@ -197,6 +170,231 @@ def main_configure_send(domain, mailserver, smtp_username, smtp_password, countr
     cli.postfix_reload()
 
 
+def main_configure_dkim():
+
+    # setup for multi-domain support thanks to
+    # http://askubuntu.com/questions/438756/using-dkim-in-my-server-for-multiple-domains-websites
+    # http://seasonofcode.com/posts/setting-up-dkim-and-srs-in-postfix.html
+    # http://edoceo.com/howto/opendkim
+    # https://help.ubuntu.com/community/Postfix/DKIM
+
+    echo.h2("Configuring Postfix to use DKIM")
+
+    cli.package("opendkim", "opendkim-tools")
+
+    opendkim_d = Dirpath("/etc/opendkim")
+    opendkim_d.create()
+
+    keys_d = Dirpath(opendkim_d, "keys")
+    keys_d.create()
+
+    hosts = [
+        "127.0.0.1",
+        "::1",
+        "localhost",
+        "192.168.0.1/24",
+    ]
+    # could also use https://pypi.python.org/pypi/netifaces but this seemed easier
+    # http://stackoverflow.com/questions/166506/finding-local-ip-addresses-using-pythons-stdlib
+    external_ip = cli.ip()
+    if external_ip:
+        hosts.append(external_ip)
+
+    hosts.append("")
+    pout.v(hosts)
+    trustedhosts_f = opendkim_d.create_file("TrustedHosts", "\n".join(hosts))
+
+    keytable_f = opendkim_d.create_file("KeyTable")
+    signingtable_f = opendkim_d.create_file("SigningTable")
+
+    # make backup of config
+    config_f = Filepath(OpenDKIM.dest_path)
+    config_bak = config_f.backup(ignore_existing=False)
+
+    c = OpenDKIM(prototype_path=config_bak.path)
+    c.update(
+        ("Canonicalization", "relaxed/simple"),
+        ("Mode", "sv"),
+        ("SubDomains", "yes"),
+        ("Syslog", "yes"),
+        ("LogWhy", "yes"),
+        ("UMask", "022"),
+        ("UserID", "opendkim:opendkim"),
+        ("KeyTable", keytable_f.path),
+        ("SigningTable", signingtable_f.path),
+        ("ExternalIgnoreList", trustedhosts_f.path),
+        ("InternalHosts", trustedhosts_f.path),
+        ("Socket", "inet:8891@localhost")
+    )
+    c.save()
+
+    m = Main(prototype_path=Main.dest_path)
+    m.update(
+        ("milter_default_action", "accept"),
+        # http://lists.opendkim.org/archive/opendkim/users/2011/08/1297.html
+        ("milter_protocol", "6"),
+        ("smtpd_milters", "inet:localhost:8891"),
+        ("non_smtpd_milters", "inet:localhost:8891"),
+    )
+    m.save()
+
+    domains_f = Filepath("/etc/postfix/virtual/domains")
+    for domain in domains_f.lines():
+        add_dkim_domain(domain.strip())
+
+    cli.postfix_reload()
+    cli.opendkim_reload()
+
+
+@arg('--domain', default="", help='The email domain (eg, example.com)')
+@arg('--proxy-domains', default="", help='The directory containing domain configuration files')
+@arg('--proxy-email', default="", help='The final destination email address')
+def main_add_domain(domain, proxy_domains, proxy_email):
+    if not proxy_domains:
+        if not domain or not proxy_email:
+            raise ArgError("Either --proxy-domains or (--domain and --proxy-email) needs to be set")
+
+    add_postfix_domains(domain, proxy_domains, proxy_email)
+    add_dkim_domains()
+
+    cli.postfix_reload()
+    cli.opendkim_reload()
+
+
+
+def add_dkim_domains():
+
+    opendkim_d = Dirpath("/etc/opendkim")
+    keys_d = Dirpath(opendkim_d, "keys")
+    keytable_f = Filepath(opendkim_d, "KeyTable")
+    keytable_f.clear()
+    signingtable_f = Filepath(opendkim_d, "SigningTable")
+    signingtable_f.clear()
+    trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
+    trustedhosts_f.clear()
+
+    domains_f = Filepath("/etc/postfix/virtual/domains")
+    for domain in domains_f.lines():
+        add_dkim_domain(domain)
+
+
+def add_dkim_domain(domain):
+    echo.h3("Configuring DKIM for {}", domain)
+
+    opendkim_d = Dirpath("/etc/opendkim")
+    keys_d = Dirpath(opendkim_d, "keys")
+    keytable_f = Filepath(opendkim_d, "KeyTable")
+    signingtable_f = Filepath(opendkim_d, "SigningTable")
+    trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
+
+    private_f = Filepath(keys_d, "{}.private".format(domain))
+    txt_f = Filepath(keys_d, "{}.txt".format(domain))
+    if not txt_f.exists():
+        #cli.run("opendkim-genkey --domain={} --verbose --directory=\"{}\"".format(
+        cli.run("opendkim-genkey --domain={} --directory=\"{}\"".format(
+            domain,
+            keys_d.path
+        ))
+
+        private_f = Filepath(keys_d, "default.private")
+        private_f.rename("{}.private".format(domain))
+        private_f.chmod(600)
+        private_f.chown("opendkim:opendkim")
+
+        txt_f = Filepath(keys_d, "default.txt")
+        txt_f.rename("{}.txt".format(domain))
+
+    if not keytable_f.contains(domain):
+        keytable_f.append("default._domainkey.{} {}:default:{}\n".format(
+            domain,
+            domain,
+            private_f.path
+        ))
+
+    if not signingtable_f.contains(domain):
+        signingtable_f.append("{} default._domainkey.{}\n".format(
+            domain,
+            domain
+        ))
+
+    if not trustedhosts_f.contains(domain):
+        trustedhosts_f.append("*.{}\n".format(domain))
+
+    #for f in keys.d.files("\.txt$"):
+    echo.banner(
+        "YOU NEED TO ADD A DNS TXT RECORD FOR {}".format(domain),
+        txt_f.path
+    )
+
+    contents = txt_f.contents()
+    m = re.match("^(\S+)", contents)
+    echo.h2("NAME")
+    echo.indent(m.group(1), "    ")
+    echo.hr()
+    mv = re.search("v=\S+", contents)
+    mk = re.search("k=\S+", contents)
+    mp = re.search("p=[^\"]+", contents)
+    echo.h2("VALUE")
+    echo.indent("{} {} {}".format(mv.group(0), mk.group(0), mp.group(0)), "    ")
+
+    echo.br()
+    echo.bar("*")
+
+
+def add_postfix_domains(domain, proxy_domains, proxy_email):
+
+    if domain:
+        echo.h3("Adding {} to postfix", domain)
+
+    if proxy_domains:
+        echo.h3("Adding domain files found in directory {} to postfix", proxy_domains)
+
+    # create directory /etc/postfix/virtual
+    virtual_d = Dirpath("/etc/postfix/virtual")
+    echo.h3("Creating {}", virtual_d)
+    virtual_d.create()
+
+    # gather domains
+    domains = set()
+    addresses_f = Filepath(virtual_d, "addresses")
+    with open(addresses_f.path, "w") as af:
+        af.truncate(0)
+        if proxy_domains:
+            domains_d = Dirpath(proxy_domains)
+            for f in domains_d.files():
+                domain = f.name
+                domain = re.sub("\.txt$", "", domain, flags=re.I)
+                echo.out("Compiling proxy addresses from {}", domain)
+                af.write(f.contents())
+                af.write("\n\n")
+                domains.add(domain)
+
+        if proxy_email:
+            if domain not in domains:
+                echo.out("Adding catchall for {} routing to {}", domain, proxy_email)
+                af.write("@{} {}\n".format(domain, proxy_email))
+                domains.add(domain)
+
+    domains_f = Filepath(virtual_d, "domains")
+    with open(domains_f.path, "w") as df:
+        for domain in domains:
+            df.write(domain)
+            df.write("\n")
+
+    cli.run("postmap {}".format(addresses_f))
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -220,139 +418,6 @@ class Command(object):
         if key not in self.kwargs or not self.kwargs[key]:
             answer = cli.ask(prompt)
             self.kwargs[key] = answer
-
-    def configure_dkim(self):
-
-        # setup for multi-domain support thanks to
-        # http://askubuntu.com/questions/438756/using-dkim-in-my-server-for-multiple-domains-websites
-        # http://seasonofcode.com/posts/setting-up-dkim-and-srs-in-postfix.html
-        # http://edoceo.com/howto/opendkim
-        # https://help.ubuntu.com/community/Postfix/DKIM
-
-
-        cli.print_out("Configuring Postfix to use DKIM")
-        #self.assure_domain()
-        #self.assure_mailserver()
-        kwargs = self.kwargs
-
-        cli.package("opendkim", "opendkim-tools")
-
-        opendkim_d = Dirpath("/etc/opendkim")
-        opendkim_d.create()
-
-        keys_d = Dirpath(opendkim_d, "keys")
-        keys_d.create()
-
-        hosts = [
-            "127.0.0.1",
-            "::1",
-            "localhost",
-            "192.168.0.1/24",
-        ]
-        # could also use https://pypi.python.org/pypi/netifaces but this seemed easier
-        # http://stackoverflow.com/questions/166506/finding-local-ip-addresses-using-pythons-stdlib
-        external_ip = cli.ip()
-        m = re.match("(?:\d+\.){4}", external_ip)
-        if m:
-            hosts.append(m.group(1))
-        hosts.append("")
-        trustedhosts_f = opendkim_d.create_file("TrustedHosts", "\n".join(hosts))
-
-        keytable_f = opendkim_d.create_file("KeyTable")
-        signingtable_f = opendkim_d.create_file("SigningTable")
-
-        # make backup of config
-        config_f = Filepath(OpenDKIM.dest_path)
-        config_bak = config_f.backup(ignore_existing=False)
-
-        c = OpenDKIM(prototype_path=config_bak.path)
-        c.update(
-            ("Canonicalization", "relaxed/simple"),
-            ("Mode", "sv"),
-            ("SubDomains", "yes"),
-            ("Syslog", "yes"),
-            ("LogWhy", "yes"),
-            ("UMask", "022"),
-            ("UserID", "opendkim:opendkim"),
-            ("KeyTable", keytable_f.path),
-            ("SigningTable", signingtable_f.path),
-            ("ExternalIgnoreList", trustedhosts_f.path),
-            ("InternalHosts", trustedhosts_f.path),
-            ("Socket", "inet:8891@localhost")
-        )
-        c.save()
-
-        m = Main(prototype_path=Main.dest_path)
-        m.update(
-            ("milter_default_action", "accept"),
-            # http://lists.opendkim.org/archive/opendkim/users/2011/08/1297.html
-            ("milter_protocol", "6"),
-            ("smtpd_milters", "inet:localhost:8891"),
-            ("non_smtpd_milters", "inet:localhost:8891"),
-        )
-        m.save()
-
-        domains_f = Filepath("/etc/postfix/virtual/domains")
-        for domain in domains_f.lines():
-            self.add_dkim_domain(domain.strip())
-
-        cli.postfix_reload()
-        cli.opendkim_reload()
-
-    def add_dkim_domain(self, domain):
-        cli.print_out("Configuring DKIM for {}", domain)
-
-        opendkim_d = Dirpath("/etc/opendkim")
-        keys_d = Dirpath(opendkim_d, "keys")
-        keytable_f = Filepath(opendkim_d, "KeyTable")
-        signingtable_f = Filepath(opendkim_d, "SigningTable")
-        trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
-
-        cli.run("opendkim-genkey --domain={} --verbose --directory=\"{}\"".format(
-            domain.strip(),
-            keys_d.path
-        ))
-
-        private_f = Filepath(keys_d, "default.private")
-        private_f.rename("{}.private".format(domain))
-        private_f.chmod(600)
-        private_f.chown("opendkim:opendkim")
-
-        txt_f = Filepath(keys_d, "default.txt")
-        txt_f.rename("{}.txt".format(domain))
-
-        keytable_f.append("default._domainkey.{} {}:default:{}\n".format(
-            domain,
-            domain,
-            private_f.path
-        ))
-
-        signingtable_f.append("{} default._domainkey.{}\n".format(
-            domain,
-            domain
-        ))
-
-        trustedhosts_f.append("*.{}\n".format(domain))
-
-        #for f in keys.d.files("\.txt$"):
-        f = txt_f
-        cli.print_out("*" * 80)
-        cli.print_out("* YOU NEED TO ADD A DNS TXT RECORD FOR {}", domain)
-        cli.print_out("* {}", f.path)
-        cli.print_out("*" * 80)
-
-        contents = f.contents()
-        m = re.match("^(\S+)", contents)
-        cli.print_out("* NAME: {}", m.group(1))
-        cli.print_out("")
-
-        mv = re.search("v=\S+", contents)
-        mk = re.search("k=\S+", contents)
-        mp = re.search("p=[^\"]+", contents)
-        cli.print_out("* VALUE: {} {} {}", mv.group(0), mk.group(0), mp.group(0))
-
-        cli.print_out("")
-        cli.print_out("*" * 80)
 
     def configure_srs(self):
 

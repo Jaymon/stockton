@@ -28,6 +28,17 @@ class Path(object):
         """completely normalize a relative path (a path with ../, ./, or ~/)"""
         return os.path.abspath(os.path.expanduser(str(d)))
 
+    @classmethod
+    def get_temp(cls, *bits):
+        tmp = tempfile.gettempdir()
+        return cls(tmp, *bits)
+
+    @classmethod
+    def create_temp(cls, *bits):
+        instance = cls.get_temp(*bits)
+        instance.create()
+        return instance
+
     def __str__(self):
         return self.path
 
@@ -76,6 +87,21 @@ class Dirpath(Path):
     def exists(self):
         return os.path.isdir(self.path)
 
+    def clear(self):
+        """this will clear a directory path of all files and folders"""
+        # http://stackoverflow.com/a/1073382/5006
+        for root, dirs, files in os.walk(self.path, topdown=True):
+            for td in dirs:
+                shutil.rmtree(os.path.join(root, td))
+
+            for tf in files:
+                os.unlink(os.path.join(root, tf))
+
+            break
+
+    def delete(self):
+        shutil.rmtree(self.path)
+
     def files(self, regex=None):
         for root_dir, _, files in os.walk(self.path, topdown=True):
             for basename in files:
@@ -104,6 +130,12 @@ class Filepath(Path):
     def name(self):
         return os.path.basename(self.path)
 
+    @property
+    def modified(self):
+        # http://stackoverflow.com/a/1526089/5006
+        t = os.path.getmtime(self.path)
+        return datetime.datetime.fromtimestamp(t)
+
     def __iter__(self):
         with open(self.path, "r") as f:
             for line in f:
@@ -116,10 +148,20 @@ class Filepath(Path):
     def lines(self):
         with open(self.path, "r") as f:
             for line in f:
-                yield line
+                yield line.strip()
+
+    def lc(self):
+        """return line count"""
+        return len(list(self.lines()))
 
     def exists(self):
         return os.path.isfile(self.path)
+
+    def clear(self):
+        self.write("")
+
+    def delete(self):
+        os.unlink(self.path)
 
     def copy(self, dest_path):
         """copy this file to dest_path"""
@@ -168,6 +210,16 @@ class Filepath(Path):
         m = re.search(regex, self.contents(), flags=flags)
         return True if m else False
 
+    def modified_within(self, seconds=0, **timedelta_kwargs):
+        if not self.exists(): return False
+
+        now = datetime.datetime.utcnow()
+        then = self.modified
+        timedelta_kwargs["seconds"] = seconds
+        td_check = datetime.timedelta(**timedelta_kwargs)
+        return (now - td_check) < then
+
+
 
 class Sentinal(object):
     def __init__(self, name):
@@ -175,8 +227,7 @@ class Sentinal(object):
         now = datetime.datetime.utcnow()
         self.year = now.strftime("%Y")
         self.month = now.strftime("%m")
-        tmp = tempfile.gettempdir()
-        self.f = Filepath(tmp, "{}-{}-{}".format(self.name, self.year, self.month))
+        self.f = Filepath.get_temp("{}-{}-{}".format(self.name, self.year, self.month))
 
     def exists(self):
         return self.f.exists()

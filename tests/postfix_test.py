@@ -86,6 +86,9 @@ class ConfigureTest(TestCase):
         self.assertFalse(f.contains("foobar"))
 
     def test_send(self):
+
+        cli.purge("sasl2-bin", "libsasl2-modules")
+
         cli.package("cyrus-clients-2.4") # for smtptest
 
         s = Stockton("configure_send")
@@ -97,6 +100,85 @@ class ConfigureTest(TestCase):
             capture_output=True
         )
         self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
+
+        r = cli.run(
+            "echo QUIT | smtptest -a smtp@mail.example.com -w 9876 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
+            capture_output=True
+        )
+        self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
+
+        r = cli.run(
+            "echo QUIT | smtptest -a foo@mail.example.com -w 1234 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
+            capture_output=True
+        )
+        self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
+
+#         r = cli.run(
+#             "echo QUIT | smtptest -a smtp -w 1234 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
+#             capture_output=True
+#         )
+#         self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
+
+    def test_dkim(self):
+        #self.test_recv() # we need a configured for receive postfix
+        s = Stockton("configure_recv")
+        r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@destination.com")
+
+
+        cli.purge("opendkim", "opendkim-tools")
+        opendkim_d = Dirpath("/etc/opendkim")
+        opendkim_d.delete()
+
+        s = Stockton("configure_dkim")
+        r = s.run()
+
+        self.assertTrue(opendkim_d.exists())
+
+        keytable_f = Filepath(opendkim_d, "KeyTable")
+        self.assertEqual(1, keytable_f.lc())
+
+        signingtable_f = Filepath(opendkim_d, "SigningTable")
+        self.assertEqual(1, signingtable_f.lc())
+
+        trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
+        self.assertTrue("*.example.com" in trustedhosts_f.lines())
+
+
+class DomainTest(TestCase):
+    def setUp(self):
+        f = Filepath(Main.dest_path)
+        self.assertTrue(f.exists())
+
+    def test_adding(self):
+
+        s = Stockton("add_domain")
+        opendkim_d = Dirpath("/etc/opendkim")
+        virtual_d = Dirpath("/etc/postfix/virtual")
+
+        domains_f = Filepath(virtual_d, "domains")
+        #domains_lc = domains_f.lc()
+
+        keytable_f = Filepath(opendkim_d, "KeyTable")
+        #keytable_lc = keytable_f.lc()
+
+        signingtable_f = Filepath(opendkim_d, "SigningTable")
+        #signingtable_lc = signingtable_f.lc()
+
+        trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
+
+        r = s.run("--domain=foo.com --proxy-email=foo@final.com")
+        pout.v(keytable_f.contents())
+        self.assertEqual(1, keytable_f.lc())
+        self.assertEqual(1, signingtable_f.lc())
+        pout.v(domains_f.contents())
+        self.assertEqual(1, domains_f.lc())
+        self.assertTrue("*.foo.com" in trustedhosts_f.lines())
+
+        r = s.run("--domain=bar.com --proxy-email=foo@final.com")
+        self.assertEqual(2, keytable_f.lc())
+        self.assertEqual(2, signingtable_f.lc())
+        self.assertEqual(2, domains_f.lc())
+        self.assertTrue("*.bar.com" in trustedhosts_f.lines())
 
 
 
