@@ -149,7 +149,59 @@ class DomainTest(TestCase):
         f = Filepath(Main.dest_path)
         self.assertTrue(f.exists())
 
-    def test_adding(self):
+    def test_add_domain_proxy_domains(self):
+        s = Stockton("configure_recv")
+        r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
+
+        proxy_domains = testdata.create_dir()
+        f = testdata.create_files({
+            "foo.com": "\n".join([
+                "one@foo.com                foo@dest.com",
+                "two@foo.com                foo@dest.com",
+                "three@foo.com              foo@dest.com",
+            ]),
+            "bar.com": "\n".join([
+                "one@bar.com                bar@dest.com",
+                "two@bar.com                bar@dest.com",
+                "three@bar.com              bar@dest.com",
+            ]),
+        }, proxy_domains)
+
+        s = Stockton("add_domain")
+        r = s.run("--proxy-domains={}".format(proxy_domains))
+
+
+    def test_add_domain_domain(self):
+        """pass in the domain and the proxy"""
+        s = Stockton("configure_recv")
+        r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
+
+        s = Stockton("add_domain")
+        onef = Filepath("/etc/postfix/virtual/addresses/one.com")
+        twof = Filepath("/etc/postfix/virtual/addresses/two.com")
+        df = Filepath("/etc/postfix/virtual/domains")
+
+        r = s.run("--domain=one.com --proxy-email=one@dest.com")
+        self.assertTrue(onef.contains("^@one.com"))
+        self.assertTrue(df.contains("one.com"))
+
+        r = s.run("--domain=two.com --proxy-email=two@dest.com")
+        self.assertTrue(onef.contains("^@one.com"))
+        self.assertTrue(df.contains("one.com"))
+        self.assertTrue(twof.contains("two@dest.com"))
+        self.assertTrue(df.contains("two.com"))
+
+        return
+
+        virtual_d = Dirpath("/etc/postfix/virtual")
+
+
+
+
+
+
+        return
+
 
         s = Stockton("add_domain")
         opendkim_d = Dirpath("/etc/opendkim")

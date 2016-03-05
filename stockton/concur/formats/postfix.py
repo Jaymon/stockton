@@ -7,7 +7,28 @@ from . import generic
 from . import base
 
 
+class MainOption(base.ConfigOption):
+    def _parse(self, fp):
+        super(MainOption, self)._parse(fp)
+        if self.is_valid():
+            # let's make sure we don't have a multiline
+            line_number = fp.line_number
+            for c in fp:
+                m = re.match("^\s+(\S+)", c.line)
+                if m:
+                    line = "\n" + fp.line
+                    self.val += line
+                    self.line += line
+                    line_number += 1
+
+                else:
+                    #self.lines = re.split(",?\s*", self.val, re.M)
+                    fp.rewind(line_number)
+                    break
+
+
 class Main(generic.EqualConfig):
+    option_class = MainOption
     dest_path = "/etc/postfix/main.cf"
     # /usr/share/postfix/main.cf.dist has a rather complete example file
 

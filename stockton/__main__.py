@@ -51,26 +51,15 @@ def main_install():
 def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
     # http://www.postfix.org/VIRTUAL_README.html
 
-    # we make sure we have all the information we need
-    if not proxy_domains and not proxy_email:
-        raise ArgError("One of --proxy-domains or --proxy-email needs to be set")
-
     echo.h2("Configuring Postfix to receive emails")
-
-    # create directory /etc/postfix/virtual
-    virtual_d = Dirpath("/etc/postfix/virtual")
-    echo.h3("Creating {}", virtual_d)
-    virtual_d.create()
-    domains_f = Filepath(virtual_d, "domains")
-    addresses_f = Filepath(virtual_d, "addresses")
 
     m = Main()
     m.update(
         ("myhostname", mailserver),
         ("mydomain", domain),
         ("myorigin", domain),
-        ("virtual_alias_domains", domains_f.path),
-        ("virtual_alias_maps", "hash:{}".format(addresses_f.path))
+        #("virtual_alias_domains", domains_f.path),
+        #("virtual_alias_maps", "hash:{}".format(addresses_f.path))
     )
     m.save()
 
@@ -255,6 +244,11 @@ def main_add_domain(domain, proxy_domains, proxy_email):
             raise ArgError("Either --proxy-domains or (--domain and --proxy-email) needs to be set")
 
     add_postfix_domains(domain, proxy_domains, proxy_email)
+
+
+    cli.postfix_reload()
+    return 0;
+
     add_dkim_domains()
 
     cli.postfix_reload()
@@ -341,7 +335,13 @@ def add_dkim_domain(domain):
     echo.bar("*")
 
 
+# TODO -- add-email endpoint that will add a specific email address of the domain
+
 def add_postfix_domains(domain, proxy_domains, proxy_email):
+
+    if not proxy_domains:
+        if not domain and not proxy_email:
+            raise ValueError("Either pass in proxy_domains or (domain and proxy_emails)")
 
     if domain:
         echo.h3("Adding {} to postfix", domain)
@@ -351,8 +351,103 @@ def add_postfix_domains(domain, proxy_domains, proxy_email):
 
     # create directory /etc/postfix/virtual
     virtual_d = Dirpath("/etc/postfix/virtual")
-    echo.h3("Creating {}", virtual_d)
     virtual_d.create()
+
+    # create addresses directory
+    addresses_d = Dirpath(virtual_d, "addresses")
+    addresses_d.create()
+
+    domains_f = Filepath(virtual_d, "domains")
+    domains = set(domains_f.lines())
+
+    # this is an additive editing of the conf file, so we use the active conf
+    # as the prototype
+    m = Main(prototype_path=Main.dest_path)
+
+    def add_virtual_domain(domain, domain_f, domains, domains_f, m):
+        if domain not in domains:
+            domains_f.append("{}\n".format(domain))
+            domains.add(domain)
+
+        alias_maps = m["virtual_alias_maps"]
+        hash_line = "hash:{}".format(domain_f.path)
+        if domain not in alias_maps.val:
+            val = alias_maps.val
+            if val:
+                val = val + ",\n  {}".format(hash_line)
+            else:
+                val = hash_line
+
+            alias_maps.val = val.strip()
+
+    if proxy_email:
+        echo.h3("Adding catchall for {} routing to {}", domain, proxy_email)
+        domain_f = Filepath(addresses_d, domain)
+        domain_c = SpaceConfig(dest_path=domain_f.path)
+        domain_c["@{}".format(domain)] = proxy_email
+        domain_c.save()
+
+        add_virtual_domain(domain, domain_f, domains, domains_f, m)
+
+    if proxy_domains:
+        domains_d = Dirpath(proxy_domains)
+        for f in domains_d.files():
+            domain = f.name
+            domain = re.sub("\.txt$", "", domain, flags=re.I)
+            echo.h3("Compiling proxy addresses from {}", domain)
+            domain_f = Filepath(addresses_d, domain)
+            f.move(domain_f)
+            add_virtual_domain(domain, domain_f, domains, domains_f, m)
+
+
+    m["virtual_alias_domains"] = domains_f.path
+    m.save()
+
+    cli.run("postmap {}".format(addresses_f))
+
+    return
+
+
+#     m.update(
+#         ("virtual_alias_domains", domains_f.path),
+#         ("virtual_alias_maps", "hash:{}".format(addresses_f.path))
+#     )
+#     m.save()
+
+
+#     domains_f = Filepath(virtual_d, "domains")
+#     with open(domains_f.path, "w") as df:
+#         for domain in domains:
+#             df.write(domain)
+#             df.write("\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+#     m = Main(prototype_path=Main.dest_path)
+#     m.update(
+#         ("virtual_alias_domains", domains_f.path),
+#         ("virtual_alias_maps", "hash:{}".format(addresses_f.path))
+#     )
+#     m.save()
+
+
+    # create directory /etc/postfix/virtual
+#     virtual_d = Dirpath("/etc/postfix/virtual")
+#     echo.h3("Creating {}", virtual_d)
+#     virtual_d.create()
+#     domains_f = Filepath(virtual_d, "domains")
+#     addresses_f = Filepath(virtual_d, "addresses")
+
 
     # gather domains
     domains = set()

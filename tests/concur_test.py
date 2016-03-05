@@ -75,6 +75,46 @@ class SpaceTest(TestCase):
 
 
 class PostfixTest(TestCase):
+    def test_main_oneline(self):
+        contents = "\n".join([
+            "virtual_alias_map = hash:/some/path/one",
+            "foo = bar",
+            "che = baz",
+        ])
+        path = testdata.create_file("main.cf", contents)
+        c = postfix.Main(prototype_path=path)
+        self.assertEqual(contents, str(c))
+
+    def test_main_multiline(self):
+        contents = "\n".join([
+            "virtual_alias_map = hash:/some/path/one,",
+            "  hash:/some/path/two,",
+            "  hash:/some/path/three",
+        ])
+        path = testdata.create_file("main.cf", contents)
+        c = postfix.Main(prototype_path=path)
+        self.assertEqual(contents, str(c))
+
+        contents = "\n".join([
+            "virtual_alias_map = hash:/some/path/one,",
+            "  hash:/some/path/two,",
+            "  hash:/some/path/three",
+            "virtual_alias_domains = /another/path/and/stuff",
+        ])
+        path = testdata.create_file("main.cf", contents)
+        c = postfix.Main(prototype_path=path)
+        self.assertEqual(contents, str(c))
+
+        c["virtual_alias_map"] = c["virtual_alias_map"].val + "\n  hash:/some/path/four"
+        contents = "\n".join([
+            "virtual_alias_map = hash:/some/path/one,",
+            "  hash:/some/path/two,",
+            "  hash:/some/path/three",
+            "  hash:/some/path/four",
+            "virtual_alias_domains = /another/path/and/stuff",
+        ])
+        self.assertEqual(contents, str(c))
+
     def test_master_multiple_same_name(self):
         contents = "\n".join([
             "smtp      inet  n       -       -       -       -       smtpd",

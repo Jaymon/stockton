@@ -20,6 +20,7 @@ class ConfigBase(object):
         self.options = defaultdict(list)
         self.lines = []
         self.name = ""
+        self.val = ""
 
     def parse(self, fp):
         self.line = fp.line
@@ -45,6 +46,22 @@ class ConfigBase(object):
             self.modified = True
             super(ConfigBase, self).__setattr__(k, v)
 
+    def __missing__(self, k):
+        try:
+            # we are either a section or the config option, assume we are a
+            # section, fallback to being the config
+            option = self.config.create_option()
+        except AttributeError:
+            option = self.create_option()
+
+        option.name = k
+        self.options[option.name].append(len(self.lines))
+        self.lines.append(option)
+        return option
+
+    def __contains__(self, k):
+        return k in self.sections or k in self.options
+
     def __getitem__(self, k):
         line_numbers = []
         if k in self.sections:
@@ -60,7 +77,8 @@ class ConfigBase(object):
             v = [self.lines[ln] for ln in line_numbers]
 
         else:
-            raise KeyError("no section or option {}".format(k))
+            v = self.__missing__(k)
+            #raise KeyError("no section or option {}".format(k))
 
         return v
 
@@ -79,15 +97,8 @@ class ConfigBase(object):
                 option.val = v
 
         else:
-            try:
-                option = self.config.create_option()
-            except AttributeError:
-                option = self.create_option()
-
-            option.name = k
+            option = self.__missing__(k)
             option.val = v
-            self.options[option.name].append(len(self.lines))
-            self.lines.append(option)
 
 
 class ConfigLine(ConfigBase):

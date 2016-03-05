@@ -114,15 +114,14 @@ class Dirpath(Path):
 
     def create_file(self, name, contents=""):
         """create the file with basename in this directory with contents"""
-        output_file = os.path.join(self.path, name)
+        output_file = Filepath(self.path, name)
         oldmask = os.umask(0)
-        with codecs.open(output_file, encoding='utf-8', mode='w+') as f:
+        with output_file.open('w+') as f:
             f.truncate(0)
             f.seek(0)
             f.write(contents)
         oldmask = os.umask(oldmask)
-
-        return Filepath(output_file)
+        return output_file
 
 
 class Filepath(Path):
@@ -191,11 +190,16 @@ class Filepath(Path):
         return bak
 
     def append(self, contents):
-        with codecs.open(self.path, encoding='utf-8', mode='a') as f:
+        with self.open("a") as f:
+        #with codecs.open(self.path, encoding='utf-8', mode='a') as f:
             f.write(contents)
 
+    def open(self, mode="r"):
+        return codecs.open(self.path, encoding='utf-8', mode=mode)
+
     def write(self, contents):
-        with codecs.open(self.path, encoding='utf-8', mode='w+') as f:
+        with self.open("w+"):
+        #with codecs.open(self.path, encoding='utf-8', mode='w+') as f:
             f.truncate(0)
             f.seek(0)
             f.write(contents)
@@ -211,6 +215,13 @@ class Filepath(Path):
         return True if m else False
 
     def modified_within(self, seconds=0, **timedelta_kwargs):
+        """returns true if the file has been modified within the last seconds
+
+        seconds -- integer -- how many seconds
+        **timedelta_kwargs -- dict -- can be thing like days, must be passed in
+            named
+        return -- boolean -- True if file has been modified after the seconds back
+        """
         if not self.exists(): return False
 
         now = datetime.datetime.utcnow()
@@ -218,7 +229,6 @@ class Filepath(Path):
         timedelta_kwargs["seconds"] = seconds
         td_check = datetime.timedelta(**timedelta_kwargs)
         return (now - td_check) < then
-
 
 
 class Sentinal(object):
