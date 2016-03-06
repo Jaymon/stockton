@@ -1,5 +1,6 @@
 from unittest import TestCase
 import os
+import re
 
 import testdata
 from captain.client import Captain
@@ -85,6 +86,8 @@ class ConfigureTest(TestCase):
         f = Filepath(Main.dest_path)
         self.assertFalse(f.contains("foobar"))
 
+        cli.running("postfix")
+
     def test_send(self):
 
         cli.purge("sasl2-bin", "libsasl2-modules")
@@ -119,6 +122,8 @@ class ConfigureTest(TestCase):
 #         )
 #         self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
 
+        cli.running("postfix")
+
     def test_dkim(self):
         #self.test_recv() # we need a configured for receive postfix
         s = Stockton("configure_recv")
@@ -143,6 +148,15 @@ class ConfigureTest(TestCase):
         trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
         self.assertTrue("*.example.com" in trustedhosts_f.lines())
 
+        cli.running("postfix")
+        cli.running("opendkim")
+
+    def test_srs(self):
+        s = Stockton("configure_srs")
+        r = s.run("")
+
+        cli.running("postsrsd")
+
 
 class DomainTest(TestCase):
     def setUp(self):
@@ -153,28 +167,65 @@ class DomainTest(TestCase):
         s = Stockton("configure_recv")
         r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
 
+        s = Stockton("add_domain")
+
         proxy_domains = testdata.create_dir()
         f = testdata.create_files({
             "foo.com": "\n".join([
                 "one@foo.com                foo@dest.com",
                 "two@foo.com                foo@dest.com",
                 "three@foo.com              foo@dest.com",
+                "",
             ]),
             "bar.com": "\n".join([
                 "one@bar.com                bar@dest.com",
                 "two@bar.com                bar@dest.com",
                 "three@bar.com              bar@dest.com",
+                "",
             ]),
         }, proxy_domains)
 
-        s = Stockton("add_domain")
         r = s.run("--proxy-domains={}".format(proxy_domains))
 
+        proxy_domains2 = testdata.create_dir()
+        contents = "\n".join([
+            "@foo.com                   foo@dest.com",
+            "",
+        ])
+        f = testdata.create_files({
+            "foo.com": contents,
+        }, proxy_domains2)
+
+        r = s.run("--proxy-domains={}".format(proxy_domains2))
+        foo = Filepath("/etc/postfix/virtual/addresses/foo.com")
+        self.assertEqual(contents, foo.contents())
+
+        # ;et's check structure because I was having a lot of problems with getting
+        # the structure...
+
+        # domains file should have 3 domains in it
+        domains_f = Filepath("/etc/postfix/virtual/domains")
+        self.assertEqual(3, domains_f.lc())
+        self.assertTrue(domains_f.contains("^foo\.com$"))
+
+        val = "\n".join([
+            "hash:/etc/postfix/virtual/addresses/bar.com,",
+            "  hash:/etc/postfix/virtual/addresses/example.com,",
+            "  hash:/etc/postfix/virtual/addresses/foo.com",
+        ])
+        m = Main(prototype_path=Main.dest_path)
+        # we can't guarrantee foo, example, bar order so we match one line at a time
+        self.assertTrue(re.search("^hash:[/a-z]+?(bar|example|foo)\.com,", m["virtual_alias_maps"].val, re.M))
+        self.assertTrue(re.search("^\s+hash:[/a-z]+?(bar|example|foo)\.com,", m["virtual_alias_maps"].val, re.M))
+        self.assertTrue(re.search("^\s+hash:[/a-z]+?(bar|example|foo)\.com$", m["virtual_alias_maps"].val, re.M))
+        #self.assertEqual(val, m["virtual_alias_maps"].val)
 
     def test_add_domain_domain(self):
         """pass in the domain and the proxy"""
         s = Stockton("configure_recv")
         r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
+        s = Stockton("configure_dkim")
+        r = s.run()
 
         s = Stockton("add_domain")
         onef = Filepath("/etc/postfix/virtual/addresses/one.com")
@@ -191,46 +242,68 @@ class DomainTest(TestCase):
         self.assertTrue(twof.contains("two@dest.com"))
         self.assertTrue(df.contains("two.com"))
 
-        return
-
-        virtual_d = Dirpath("/etc/postfix/virtual")
-
-
-
-
-
-
-        return
-
-
-        s = Stockton("add_domain")
         opendkim_d = Dirpath("/etc/opendkim")
-        virtual_d = Dirpath("/etc/postfix/virtual")
-
-        domains_f = Filepath(virtual_d, "domains")
-        #domains_lc = domains_f.lc()
-
         keytable_f = Filepath(opendkim_d, "KeyTable")
-        #keytable_lc = keytable_f.lc()
-
         signingtable_f = Filepath(opendkim_d, "SigningTable")
-        #signingtable_lc = signingtable_f.lc()
-
         trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
 
-        r = s.run("--domain=foo.com --proxy-email=foo@final.com")
-        pout.v(keytable_f.contents())
-        self.assertEqual(1, keytable_f.lc())
-        self.assertEqual(1, signingtable_f.lc())
-        pout.v(domains_f.contents())
-        self.assertEqual(1, domains_f.lc())
-        self.assertTrue("*.foo.com" in trustedhosts_f.lines())
+        self.assertEqual(3, keytable_f.lc())
+        self.assertEqual(3, signingtable_f.lc())
+        self.assertTrue("*.example.com" in trustedhosts_f.lines())
+        self.assertTrue("*.one.com" in trustedhosts_f.lines())
+        self.assertTrue("*.two.com" in trustedhosts_f.lines())
 
-        r = s.run("--domain=bar.com --proxy-email=foo@final.com")
-        self.assertEqual(2, keytable_f.lc())
-        self.assertEqual(2, signingtable_f.lc())
-        self.assertEqual(2, domains_f.lc())
-        self.assertTrue("*.bar.com" in trustedhosts_f.lines())
+#         virtual_d = Dirpath("/etc/postfix/virtual")
+# 
+# 
+# 
+# 
+# 
+# 
+#         return
+# 
+# 
+#         s = Stockton("add_domain")
+#         opendkim_d = Dirpath("/etc/opendkim")
+#         virtual_d = Dirpath("/etc/postfix/virtual")
+# 
+#         domains_f = Filepath(virtual_d, "domains")
+#         #domains_lc = domains_f.lc()
+# 
+#         keytable_f = Filepath(opendkim_d, "KeyTable")
+#         #keytable_lc = keytable_f.lc()
+# 
+#         signingtable_f = Filepath(opendkim_d, "SigningTable")
+#         #signingtable_lc = signingtable_f.lc()
+# 
+#         trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
+# 
+#         r = s.run("--domain=foo.com --proxy-email=foo@final.com")
+#         pout.v(keytable_f.contents())
+#         self.assertEqual(1, keytable_f.lc())
+#         self.assertEqual(1, signingtable_f.lc())
+#         pout.v(domains_f.contents())
+#         self.assertEqual(1, domains_f.lc())
+#         self.assertTrue("*.foo.com" in trustedhosts_f.lines())
+# 
+#         r = s.run("--domain=bar.com --proxy-email=foo@final.com")
+#         self.assertEqual(2, keytable_f.lc())
+#         self.assertEqual(2, signingtable_f.lc())
+#         self.assertEqual(2, domains_f.lc())
+#         self.assertTrue("*.bar.com" in trustedhosts_f.lines())
+# 
+
+class LockdownTest(TestCase):
+    def setUp(self):
+        cli.running("postfix")
+
+    def test_run(self):
+        s = Stockton("configure_recv")
+        r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
+
+        s = Stockton("lockdown")
+        r = s.run("--mailserver=mail.example.com")
+        cli.running("postfix")
 
 
 

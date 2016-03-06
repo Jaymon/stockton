@@ -198,7 +198,7 @@ class Filepath(Path):
         return codecs.open(self.path, encoding='utf-8', mode=mode)
 
     def write(self, contents):
-        with self.open("w+"):
+        with self.open("w+") as f:
         #with codecs.open(self.path, encoding='utf-8', mode='w+') as f:
             f.truncate(0)
             f.seek(0)
@@ -207,10 +207,14 @@ class Filepath(Path):
     def create(self):
         """touch the file"""
         # http://stackoverflow.com/a/1160227/5006
-        with open(self.path, 'a'):
+
+        with open(self.path, 'a') as f:
             os.utime(self.path, None)
+#             f.flush()
+#             os.fsync(f.fileno())
 
     def contains(self, regex, flags=0):
+        flags |= re.M
         m = re.search(regex, self.contents(), flags=flags)
         return True if m else False
 
@@ -240,10 +244,21 @@ class Sentinal(object):
         self.f = Filepath.get_temp("{}-{}-{}".format(self.name, self.year, self.month))
 
     def exists(self):
-        return self.f.exists()
+        ret = False
+        try:
+            ret = self._exists
+
+        except AttributeError:
+            ret = self.f.exists()
+
+        finally:
+            self._exists = ret
+
+        return ret
 
     def create(self):
         self.f.create()
+        self._exists = True
 
     @classmethod
     @contextmanager
@@ -251,7 +266,13 @@ class Sentinal(object):
         """yields a boolean, execute to check if the block whould be run"""
         instance = cls(name)
         exists = instance.exists()
-        yield not exists
+        yield instance
         if not exists:
             instance.create()
+
+    def __str__(self):
+        return self.f.path
+
+    def __nonzero__(self):
+        return self.exists()
 

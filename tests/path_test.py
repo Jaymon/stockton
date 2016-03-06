@@ -3,7 +3,7 @@ import time
 
 import testdata
 
-from stockton.path import Dirpath, Filepath
+from stockton.path import Dirpath, Filepath, Sentinal
 
 
 def setUpModule():
@@ -13,6 +13,22 @@ def setUpModule():
 def tearDownModule():
     pass
 
+
+class SentinalTest(TestCase):
+    def test_exists(self):
+        s = Sentinal(testdata.get_ascii())
+        self.assertFalse(s.exists())
+
+        s.create()
+        self.assertTrue(s.exists())
+
+    def test_with(self):
+        name = testdata.get_ascii()
+        with Sentinal.check(name) as execute:
+            self.assertFalse(execute)
+
+        s = Sentinal(name)
+        self.assertTrue(s)
 
 class FilepathTest(TestCase):
     def test_modified_within(self):

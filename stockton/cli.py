@@ -4,6 +4,10 @@ import subprocess
 import re
 import hashlib
 
+
+from captain import echo
+
+
 from .path import Filepath
 
 
@@ -31,6 +35,8 @@ def cached_run(cmd, ttl=3600, **process_kwargs):
 
 def run(cmd, capture_output=False, **process_kwargs):
     # we will allow overriding of these values
+    echo.out("< {}", cmd)
+
     output = ""
     process_kwargs.setdefault("stderr", subprocess.STDOUT)
 
@@ -49,7 +55,8 @@ def run(cmd, capture_output=False, **process_kwargs):
             if capture_output:
                 output += line
             else:
-                sys.stdout.write(line)
+                #sys.stdout.write(line)
+                echo.out(line)
 
         process.wait()
         if process.returncode > 0:
@@ -111,27 +118,6 @@ def srs_reload():
         run("restart postsrsd")
 
 
-def print_err(format_str, *args, **kwargs):
-    if isinstance(format_str, basestring):
-        sys.stderr.write(format_str.format(*args, **kwargs)) 
-        sys.stderr.write(os.linesep)
-        sys.stderr.flush()
-
-    else:
-        sys.stderr.write(str(format_str)) 
-        sys.stderr.write(os.linesep)
-        sys.stderr.flush()
-
-
-def print_out(format_str, *args, **kwargs):
-    if isinstance(format_str, basestring):
-        sys.stdout.write(format_str.format(*args, **kwargs)) 
-        sys.stdout.write(os.linesep)
-        sys.stdout.flush()
-
-    else:
-        sys.stdout.write(str(format_str)) 
-        sys.stdout.write(os.linesep)
-        sys.stdout.flush()
-
+def running(name):
+    run("pgrep -f {}".format(name))
 
