@@ -40,7 +40,7 @@ def remove_postfix():
     cli.run("apt-get purge -y postfix")
 
 
-class InstallTest(TestCase):
+class PrepareTest(TestCase):
     def setUp(self):
         remove_postfix()
 
@@ -48,7 +48,7 @@ class InstallTest(TestCase):
         d = Dirpath("etc", "postfix")
         self.assertFalse(d.exists())
 
-        s = Stockton("install")
+        s = Stockton("prepare")
         r = s.run("")
 
         # we use a file to get around filecache at os level
@@ -163,11 +163,37 @@ class DomainTest(TestCase):
         f = Filepath(Main.dest_path)
         self.assertTrue(f.exists())
 
+    def test_delete_domain(self):
+        s = Stockton("configure_recv")
+        r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
+        s = Stockton("configure_dkim")
+        r = s.run()
+
+        s = Stockton("add_domain")
+        r = s.run("--domain=todelete.com --proxy-email=todelete@dest.com")
+
+        s = Stockton("delete_domain")
+        r = s.run("--domain=todelete.com")
+
+        # verify
+        af = Filepath("/etc/postfix/virtual/addresses/todelete.com")
+        self.assertFalse(af.exists())
+
+        df = Filepath("/etc/postfix/virtual/domains")
+        self.assertFalse(df.contains("todelete.com"))
+
+        opendkim_d = Dirpath("/etc/opendkim")
+        #keytable_f = Filepath(opendkim_d, "KeyTable")
+        signingtable_f = Filepath(opendkim_d, "SigningTable")
+        self.assertFalse(signingtable_f.contains("todelete.com"))
+
+        trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
+        self.assertFalse(trustedhosts_f.contains("todelete.com"))
+
     def test_add_domain_proxy_domains(self):
         s = Stockton("configure_recv")
         r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
 
-        s = Stockton("add_domain")
 
         proxy_domains = testdata.create_dir()
         f = testdata.create_files({

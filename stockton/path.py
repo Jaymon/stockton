@@ -103,14 +103,27 @@ class Dirpath(Path):
         shutil.rmtree(self.path)
 
     def files(self, regex=None):
+        regexp = re.compile(regex, re.I) if regex else None
         for root_dir, _, files in os.walk(self.path, topdown=True):
             for basename in files:
-                if regex and not re.search(regex, basename, re.I):
+                if regexp and not regexp.search(basename):
                     continue
 
                 yield Filepath(os.path.join(root_dir, basename))
 
             break
+
+    def delete_files(self, regex):
+        """delete all files matching regex"""
+        if not regex:
+            raise ValueError("regex was empty")
+
+        count = 0
+        for f in self.files(regex):
+            count += 1
+            f.delete()
+
+        return count
 
     def create_file(self, name, contents=""):
         """create the file with basename in this directory with contents"""
@@ -145,9 +158,11 @@ class Filepath(Path):
             return f.read()
 
     def lines(self):
+        """this is different than python built-in lines() method in that it strips
+        the line endings from the end of the string"""
         with open(self.path, "r") as f:
             for line in f:
-                yield line.strip()
+                yield line.rstrip()
 
     def lc(self):
         """return line count"""
@@ -192,7 +207,9 @@ class Filepath(Path):
     def append(self, contents):
         with self.open("a") as f:
         #with codecs.open(self.path, encoding='utf-8', mode='a') as f:
-            f.write(contents)
+            ret = f.write(contents)
+
+        return ret
 
     def open(self, mode="r"):
         return codecs.open(self.path, encoding='utf-8', mode=mode)
@@ -202,7 +219,17 @@ class Filepath(Path):
         #with codecs.open(self.path, encoding='utf-8', mode='w+') as f:
             f.truncate(0)
             f.seek(0)
-            f.write(contents)
+            ret = f.write(contents)
+
+        return ret
+
+    def writelines(self, lines):
+        """this is different than built-in python writelines in that it adds the
+        newlines at the end of each line"""
+        with self.open("w+") as f:
+            ret = f.writelines(("{}\n".format(line) for line in lines))
+
+        return ret
 
     def create(self):
         """touch the file"""
@@ -217,6 +244,23 @@ class Filepath(Path):
         flags |= re.M
         m = re.search(regex, self.contents(), flags=flags)
         return True if m else False
+
+    def delete_lines(self, regex, flags=0):
+        """returns how many lines were removed"""
+        count = 0
+        regexp = re.compile(regex, flags)
+        with self.open("r") as f:
+            lines = f.readlines()
+
+        with self.open("w") as f:
+            f.truncate(0)
+            for line in lines:
+                if regexp.search(line):
+                    count += 1
+                else:
+                    f.write(line)
+
+        return count
 
     def modified_within(self, seconds=0, **timedelta_kwargs):
         """returns true if the file has been modified within the last seconds

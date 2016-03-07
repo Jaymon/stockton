@@ -16,21 +16,25 @@ from stockton.concur.formats.generic import SpaceConfig
 from stockton.path import Dirpath, Filepath, Sentinal
 
 
-@arg('--domain', dest='domain', default="", help='The email domain (eg, example.com)')
-@arg('--mailserver', dest='mailserver', default="", help='The domain mailserver (eg, mail.example.com)')
-def main_setup():
-    # TODO -- if postfix is already installed then bak files need to be cleared, etc
-    # the key is re-running should be idempotent
-
-    main_install()
-    main_configure_recv()
-    main_configure_send()
-    self.configure_dkim()
-    self.configure_srs()
-    #self.lockdown()
-
-
+@arg('--domain', help='The email domain (eg, example.com)')
+@arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
+@arg('--proxy-domains', default="", help='The directory containing domain configuration files')
+@arg('--proxy-email', default="", help='The final destination email address')
+@arg('--smtp-username', default="smtp", help='smtp username for sending emails')
+@arg('--smtp-password', help='smtp password for sending emails')
+@arg('--country', default="US", help='country for ssl certificate')
+@arg('--state', help='state for ssl certificate')
+@arg('--city', help='city for ssl certificate')
 def main_install():
+    main_prepare()
+    main_configure_recv(domain, mailserver, proxy_domains, proxy_email)
+    main_configure_send(domain, mailserver, smtp_username, smtp_password, country, state, city)
+    main_configure_dkim()
+    main_configure_srs()
+    main_lockdown(mailserver)
+
+
+def main_prepare():
     echo.h2("Installing Postfix")
 
     with Sentinal.check("apt-get-update") as s:
@@ -56,8 +60,7 @@ def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
     # commands that configure postfix will be able to make correct snapshots of
     # the main.cf file to remain idempotent
     postfix_d = Dirpath("/etc/postfix")
-    for f in postfix_d.files(".bak$"):
-        f.delete()
+    postfix_d.delete_files(".bak$")
 
     virtual_d = Dirpath("/etc/postfix/virtual")
     echo.h3("Clearing {}", virtual_d)
@@ -288,7 +291,47 @@ def main_configure_srs():
     cli.postfix_reload()
 
 
+@arg('--domain', help='The email domain to remove (eg, example.com)')
+def main_delete_domain(domain):
+    m = Main(prototype_path=Main.dest_path)
+    if domain == m["mydomain"].val:
+        raise ArgError("domain cannot be the Postfix main.cf mydomain value")
 
+    echo.h3("Deleting domain {}", domain)
+
+    # remove postfix settings
+    virtual_d = Dirpath("/etc/postfix/virtual")
+
+    domains_f = Filepath(virtual_d, "domains")
+    domains_f.delete_lines("^{}$".format(domain))
+
+    addresses_d = Dirpath(virtual_d, "addresses")
+    addresses_d.delete_files("^{}".format(domain))
+
+    domain_hashes = []
+    for d in domains_f.lines():
+        domain_f = Filepath(addresses_d, d)
+        domain_hashes.append("hash:{}".format(domain_f.path))
+
+    m = Main(prototype_path=Main.dest_path)
+    m["virtual_alias_maps"] = ",\n  ".join(domain_hashes)
+    m.save()
+
+    # make sure lockdown is still idempotent
+    main_f = Filepath(Main.dest_path)
+    main_bak = main_f.backup(suffix=".lockdown.bak", ignore_existing=True)
+
+    # remove dkim settings
+    opendkim_d = Dirpath("/etc/opendkim")
+
+    signingtable_f = Filepath(opendkim_d, "SigningTable")
+    signingtable_f.delete_lines(domain)
+
+    trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
+    trustedhosts_f.delete_lines(domain)
+
+    cli.postfix_reload()
+    cli.opendkim_reload()
 
 
 @arg('--domain', default="", help='The email domain (eg, example.com)')
@@ -385,8 +428,6 @@ def add_dkim_domain(domain):
     echo.bar("*")
 
 
-# TODO -- add-email endpoint that will add a specific email address of the domain
-
 def add_postfix_domains(domain, proxy_domains, proxy_email):
 
     if not proxy_domains:
@@ -426,7 +467,7 @@ def add_postfix_domains(domain, proxy_domains, proxy_email):
             f.copy(domain_f)
             new_domains.add(domain)
 
-    domains_f.write("\n".join(old_domains.union(new_domains)))
+    domains_f.writelines(old_domains.union(new_domains))
 
     domain_hashes = []
     for domain in domains_f.lines():
