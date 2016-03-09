@@ -135,10 +135,11 @@ class PostfixTest(TestCase):
         self.assertEqual(contents, str(master))
 
     def test_master_option(self):
+        master = postfix.Master()
         class FP(object):
             line = "  -o foo=yes"
 
-        mo = postfix.MasterOption()
+        mo = master.create_option()
         mo.parse(FP())
         self.assertEqual("foo", mo.name)
         self.assertEqual("yes", mo.val)

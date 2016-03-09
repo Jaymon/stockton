@@ -56,7 +56,7 @@ def run(cmd, capture_output=False, **process_kwargs):
                 output += line
             else:
                 #sys.stdout.write(line)
-                echo.out(line)
+                echo.verbose(line)
 
         process.wait()
         if process.returncode > 0:
@@ -86,7 +86,8 @@ def purge(*packages):
     os.environ["DEBIAN_FRONTEND"] = "noninteractive"
 
     for p in packages:
-        run("apt-get purge -y {}".format(p))
+        #run("apt-get purge -y {}".format(p))
+        run("apt-get -y remove --purge --auto-remove {}".format(p))
 
 
 def postfix_reload():

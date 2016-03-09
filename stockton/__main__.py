@@ -7,31 +7,13 @@ import subprocess
 import re
 
 from captain import echo, exit, ArgError
-from captain.decorators import arg
+from captain.decorators import arg, args
 
 from stockton import __version__, cli
 from stockton.concur.formats.postfix import Main, SMTPd, Master
 from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.concur.formats.generic import SpaceConfig
 from stockton.path import Dirpath, Filepath, Sentinal
-
-
-@arg('--domain', help='The email domain (eg, example.com)')
-@arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
-@arg('--proxy-domains', default="", help='The directory containing domain configuration files')
-@arg('--proxy-email', default="", help='The final destination email address')
-@arg('--smtp-username', default="smtp", help='smtp username for sending emails')
-@arg('--smtp-password', help='smtp password for sending emails')
-@arg('--country', default="US", help='country for ssl certificate')
-@arg('--state', help='state for ssl certificate')
-@arg('--city', help='city for ssl certificate')
-def main_install():
-    main_prepare()
-    main_configure_recv(domain, mailserver, proxy_domains, proxy_email)
-    main_configure_send(domain, mailserver, smtp_username, smtp_password, country, state, city)
-    main_configure_dkim()
-    main_configure_srs()
-    main_lockdown(mailserver)
 
 
 def main_prepare():
@@ -267,7 +249,7 @@ def main_configure_srs():
             cli.run("curl -L -o postsrsd.zip https://github.com/roehling/postsrsd/archive/master.zip", cwd=tmpdir.path)
 
         else:
-            echo.out("****** not downloading postsrsd because sentinal {}", execute)
+            echo.out("****** not downloading postsrsd because sentinal {}", s)
 
     # Build and install.
     cli.run("unzip -o postsrsd.zip", cwd=tmpdir.path)
@@ -572,6 +554,17 @@ def main_lockdown(mailserver):
     # http://serverfault.com/a/514830/190381
 
     cli.postfix_reload()
+
+
+@args(main_configure_recv, main_configure_send)
+def main_install(domain, mailserver, smtp_username, smtp_password, country, state, city, proxy_domains, proxy_email):
+
+    main_prepare()
+    main_configure_recv(domain, mailserver, proxy_domains, proxy_email)
+    main_configure_send(domain, mailserver, smtp_username, smtp_password, country, state, city)
+    main_configure_dkim()
+    main_configure_srs()
+    main_lockdown(mailserver)
 
 
 def console():

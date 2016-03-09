@@ -41,8 +41,7 @@ class MasterSection(base.ConfigSection):
     def _parse(self, fp):
         if not re.search("\s+-\s+", fp.line): return
 
-        self.options = {}
-        self.lines = []
+        self.reset()
         commenters = self.config.commenters
 
         # service type  private unpriv  chroot  wakeup  maxproc command + args",
@@ -68,7 +67,7 @@ class MasterSection(base.ConfigSection):
                     break
 
                 elif isinstance(c, self.config.option_class):
-                    self.options[c.name] = line_number
+                    self.options[c.name].append(line_number)
                     self.lines.append(c)
 
                 elif isinstance(c, self.config.line_class):
