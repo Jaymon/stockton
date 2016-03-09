@@ -508,6 +508,7 @@ def main_lockdown(mailserver):
         ("/^[0-9.]+$/", "550 Your software is not RFC 2821 compliant"),
         ("/^[0-9]+(\.[0-9]+){3}$/", "550 Your software is not RFC 2821 compliant")
     )
+    helo_f.save()
 
     m = Main(prototype_path=main_bak.path)
     m.update(

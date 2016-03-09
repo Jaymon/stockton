@@ -331,7 +331,7 @@ class LockdownTest(TestCase):
         r = s.run("--mailserver=mail.example.com")
         cli.running("postfix")
 
-
-
+        helo_f = Filepath("/etc/postfix/helo.regexp")
+        self.assertTrue(helo_f.exists())
 
 
