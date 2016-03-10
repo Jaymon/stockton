@@ -50,6 +50,7 @@ def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
 
     m = Main()
     m.update(
+        ("alias_maps", "hash:/etc/aliases"), # http://unix.stackexchange.com/a/244200/118750
         ("myhostname", mailserver),
         ("mydomain", domain),
         ("myorigin", domain),
@@ -81,7 +82,8 @@ def main_configure_send(domain, mailserver, smtp_username, smtp_password, countr
 
     cli.package("sasl2-bin", "libsasl2-modules")
 
-    cli.run("echo \"{}\" | saslpasswd2 -c -u {} {} -p".format(smtp_password, mailserver, smtp_username))
+    #cli.run("echo \"{}\" | saslpasswd2 -c -u {} {} -p".format(smtp_password, mailserver, smtp_username))
+    cli.run("echo \"{}\" | saslpasswd2 -c -u {} {} -p".format(smtp_password, domain, smtp_username))
 
     sasldb2 = Filepath("/etc/sasldb2")
     sasldb2.chmod(400)
@@ -220,6 +222,9 @@ def main_configure_dkim():
         ("non_smtpd_milters", "inet:localhost:8891"),
     )
     m.save()
+
+    # http://unix.stackexchange.com/a/74491/118750
+    cli.run("adduser postfix opendkim")
 
     add_dkim_domains()
 

@@ -62,7 +62,7 @@ class ConfigureTest(TestCase):
         self.assertTrue(f.exists())
 
     def test_recv(self):
-        s = Stockton("configure_recv")
+        s = Stockton("configure-recv")
 
         with self.assertRaises(RuntimeError):
             r = s.run("--domain=example.com --mailserver=mail.example.com")
@@ -81,7 +81,7 @@ class ConfigureTest(TestCase):
         self.assertTrue(f.contains("foobar"))
 
         # re-run
-        s = Stockton("configure_recv")
+        s = Stockton("configure-recv")
         r = s.run(arg_str)
         f = Filepath(Main.dest_path)
         self.assertFalse(f.contains("foobar"))
@@ -94,24 +94,24 @@ class ConfigureTest(TestCase):
 
         cli.package("cyrus-clients-2.4") # for smtptest
 
-        s = Stockton("configure_send")
+        s = Stockton("configure-send")
         arg_str = "--domain=example.com --mailserver=mail.example.com --smtp-password=1234 --state=CA --city=\"San Francisco\""
         r = s.run(arg_str)
 
         r = cli.run(
-            "echo QUIT | smtptest -a smtp@mail.example.com -w 1234 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
+            "echo QUIT | smtptest -a smtp@example.com -w 1234 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
             capture_output=True
         )
         self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
 
         r = cli.run(
-            "echo QUIT | smtptest -a smtp@mail.example.com -w 9876 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
+            "echo QUIT | smtptest -a smtp@example.com -w 9876 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
             capture_output=True
         )
         self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
 
         r = cli.run(
-            "echo QUIT | smtptest -a foo@mail.example.com -w 1234 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
+            "echo QUIT | smtptest -a foo@example.com -w 1234 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
             capture_output=True
         )
         self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
@@ -126,7 +126,7 @@ class ConfigureTest(TestCase):
 
     def test_dkim(self):
         #self.test_recv() # we need a configured for receive postfix
-        s = Stockton("configure_recv")
+        s = Stockton("configure-recv")
         r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@destination.com")
 
 
@@ -134,7 +134,7 @@ class ConfigureTest(TestCase):
         opendkim_d = Dirpath("/etc/opendkim")
         opendkim_d.delete()
 
-        s = Stockton("configure_dkim")
+        s = Stockton("configure-dkim")
         r = s.run()
 
         self.assertTrue(opendkim_d.exists())
@@ -152,7 +152,7 @@ class ConfigureTest(TestCase):
         cli.running("opendkim")
 
     def test_srs(self):
-        s = Stockton("configure_srs")
+        s = Stockton("configure-srs")
         r = s.run("")
 
         cli.running("postsrsd")
@@ -164,15 +164,15 @@ class DomainTest(TestCase):
         self.assertTrue(f.exists())
 
     def test_delete_domain(self):
-        s = Stockton("configure_recv")
+        s = Stockton("configure-recv")
         r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
         s = Stockton("configure_dkim")
         r = s.run()
 
-        s = Stockton("add_domain")
+        s = Stockton("add-domain")
         r = s.run("--domain=todelete.com --proxy-email=todelete@dest.com")
 
-        s = Stockton("delete_domain")
+        s = Stockton("delete-domain")
         r = s.run("--domain=todelete.com")
 
         # verify
@@ -191,7 +191,7 @@ class DomainTest(TestCase):
         self.assertFalse(trustedhosts_f.contains("todelete.com"))
 
     def test_add_domain_proxy_domains(self):
-        s = Stockton("configure_recv")
+        s = Stockton("configure-recv")
         r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
 
 
@@ -248,12 +248,12 @@ class DomainTest(TestCase):
 
     def test_add_domain_domain(self):
         """pass in the domain and the proxy"""
-        s = Stockton("configure_recv")
+        s = Stockton("configure-recv")
         r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
-        s = Stockton("configure_dkim")
+        s = Stockton("configure-dkim")
         r = s.run()
 
-        s = Stockton("add_domain")
+        s = Stockton("add-domain")
         onef = Filepath("/etc/postfix/virtual/addresses/one.com")
         twof = Filepath("/etc/postfix/virtual/addresses/two.com")
         df = Filepath("/etc/postfix/virtual/domains")
@@ -279,45 +279,6 @@ class DomainTest(TestCase):
         self.assertTrue("*.one.com" in trustedhosts_f.lines())
         self.assertTrue("*.two.com" in trustedhosts_f.lines())
 
-#         virtual_d = Dirpath("/etc/postfix/virtual")
-# 
-# 
-# 
-# 
-# 
-# 
-#         return
-# 
-# 
-#         s = Stockton("add_domain")
-#         opendkim_d = Dirpath("/etc/opendkim")
-#         virtual_d = Dirpath("/etc/postfix/virtual")
-# 
-#         domains_f = Filepath(virtual_d, "domains")
-#         #domains_lc = domains_f.lc()
-# 
-#         keytable_f = Filepath(opendkim_d, "KeyTable")
-#         #keytable_lc = keytable_f.lc()
-# 
-#         signingtable_f = Filepath(opendkim_d, "SigningTable")
-#         #signingtable_lc = signingtable_f.lc()
-# 
-#         trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
-# 
-#         r = s.run("--domain=foo.com --proxy-email=foo@final.com")
-#         pout.v(keytable_f.contents())
-#         self.assertEqual(1, keytable_f.lc())
-#         self.assertEqual(1, signingtable_f.lc())
-#         pout.v(domains_f.contents())
-#         self.assertEqual(1, domains_f.lc())
-#         self.assertTrue("*.foo.com" in trustedhosts_f.lines())
-# 
-#         r = s.run("--domain=bar.com --proxy-email=foo@final.com")
-#         self.assertEqual(2, keytable_f.lc())
-#         self.assertEqual(2, signingtable_f.lc())
-#         self.assertEqual(2, domains_f.lc())
-#         self.assertTrue("*.bar.com" in trustedhosts_f.lines())
-# 
 
 class LockdownTest(TestCase):
     def setUp(self):
