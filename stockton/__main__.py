@@ -403,7 +403,7 @@ def add_dkim_domain(domain):
     contents = txt_f.contents()
     m = re.match("^(\S+)", contents)
     echo.h2("NAME")
-    echo.indent(m.group(1), "    ")
+    echo.indent("{}.{}".format(m.group(1), domain), "    ")
     echo.hr()
     mv = re.search("v=\S+", contents)
     mk = re.search("k=\S+", contents)
