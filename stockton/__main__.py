@@ -52,8 +52,8 @@ def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
     m.update(
         ("alias_maps", "hash:/etc/aliases"), # http://unix.stackexchange.com/a/244200/118750
         ("myhostname", mailserver),
-        ("mydomain", domain),
-        ("myorigin", domain),
+        #("mydomain", domain),
+        #("myorigin", domain),
     )
     m.save()
 
@@ -348,10 +348,16 @@ def add_dkim_domains():
         add_dkim_domain(domain)
 
 
-def add_dkim_domain(domain):
+def main_dkim_genkeys():
+    domains_f = Filepath("/etc/postfix/virtual/domains")
+    for domain in domains_f.lines():
+        add_dkim_domain(domain, gen_key=True)
+        main_check_domains(["dkim"])
+
+
+def add_dkim_domain(domain, gen_key=False):
     echo.h3("Configuring DKIM for {}", domain)
 
-    is_new_domain = False
     opendkim_d = Dirpath("/etc/opendkim")
     keys_d = Dirpath(opendkim_d, "keys")
     keytable_f = Filepath(opendkim_d, "KeyTable")
@@ -360,10 +366,9 @@ def add_dkim_domain(domain):
 
     private_f = Filepath(keys_d, "{}.private".format(domain))
     txt_f = Filepath(keys_d, "{}.txt".format(domain))
-    if not txt_f.exists():
-        is_new_domain = True
+    if not txt_f.exists() or gen_key:
         #cli.run("opendkim-genkey --domain={} --verbose --directory=\"{}\"".format(
-        cli.run("opendkim-genkey --domain={} --directory=\"{}\"".format(
+        cli.run("opendkim-genkey --bits=1024 --domain={} --directory=\"{}\"".format(
             domain,
             keys_d.path
         ))
@@ -377,7 +382,6 @@ def add_dkim_domain(domain):
         txt_f.rename("{}.txt".format(domain))
 
     if not keytable_f.contains(domain):
-        is_new_domain = True
         keytable_f.append("default._domainkey.{} {}:default:{}\n".format(
             domain,
             domain,
@@ -385,14 +389,12 @@ def add_dkim_domain(domain):
         ))
 
     if not signingtable_f.contains(domain):
-        is_new_domain = True
         signingtable_f.append("{} default._domainkey.{}\n".format(
             domain,
             domain
         ))
 
     if not trustedhosts_f.contains(domain):
-        is_new_domain = True
         trustedhosts_f.append("*.{}\n".format(domain))
 
 
@@ -543,7 +545,17 @@ def main_lockdown(mailserver):
     cli.postfix_reload()
 
 
-def main_check_domains():
+@arg(
+    '--record', "-r",
+    action="append",
+    dest="records",
+    help='records to check',
+    default=None,
+    choices=["mx", "a", "ptr", "spf", "dkim"],
+)
+def main_check_domains(records):
+    if not records:
+        records = ["mx", "a", "ptr", "spf", "dkim"]
 
     opendkim_d = Dirpath("/etc/opendkim")
     keys_d = Dirpath(opendkim_d, "keys")
@@ -553,61 +565,17 @@ def main_check_domains():
     mailserver = m["myhostname"].val
     external_ip = cli.ip()
 
-    echo.banner("Checking {} DNS records".format(mailserver))
-    d = dns.Domain(mailserver)
-    a = d.a(external_ip)
-    if not a:
-        echo.h1("DNS A RECORD NEEDED FOR {}".format(mailserver))
-        echo.br()
-
-        mx_d = [
-            ("HOSTNAME", mailserver),
-            ("TARGET", external_ip),
-        ]
-        echo.columns(
-            [c[0] for c in mx_d],
-            [c[1] for c in mx_d],
-        )
-        echo.br()
-
-    else:
-        echo.h3("mx record found")
-        echo.br()
-
-    d = dns.Domain(external_ip)
-    ptr = d.ptr(mailserver)
-    if not ptr:
-        echo.h1("DNS PTR RECORD NEEDED FOR {}".format(external_ip))
-        echo.br()
-
-        mx_d = [
-            ("HOSTNAME", mailserver),
-        ]
-        echo.columns(
-            [c[0] for c in mx_d],
-            [c[1] for c in mx_d],
-        )
-        echo.br()
-
-    else:
-        echo.h3("ptr record found")
-        echo.br()
-
-    domains_f = Filepath("/etc/postfix/virtual/domains")
-    for domain in domains_f.lines():
-
-        echo.banner("Checking {} DNS records".format(domain))
-        echo.br()
-
-        d = dns.Domain(domain)
-        mx = d.mx(mailserver)
-        if not mx:
-            echo.h1("DNS MX RECORD NEEDED FOR {}".format(domain))
+    if "a" in records:
+        echo.banner("Checking {} DNS records".format(mailserver))
+        d = dns.Domain(mailserver)
+        a = d.a(external_ip)
+        if not a:
+            echo.h1("DNS A RECORD NEEDED FOR {}".format(mailserver))
             echo.br()
+
             mx_d = [
-                ("HOSTNAME", "@"),
-                ("MAILSERVER DOMAIN", mailserver),
-                ("PRIORITY", "100"),
+                ("HOSTNAME", mailserver),
+                ("TARGET", external_ip),
             ]
             echo.columns(
                 [c[0] for c in mx_d],
@@ -619,13 +587,15 @@ def main_check_domains():
             echo.h3("mx record found")
             echo.br()
 
-        txts = d.txt("spf")
-        if not txts:
-            echo.h1("DNS TXT SPF RECORD NEEDED FOR {}".format(domain))
+    if "ptr" in records:
+        d = dns.Domain(external_ip)
+        ptr = d.ptr(mailserver)
+        if not ptr:
+            echo.h1("DNS PTR RECORD NEEDED FOR {}".format(external_ip))
             echo.br()
+
             mx_d = [
-                ("HOSTNAME", domain),
-                ("TEXT", "v=spf1 mx ~all"),
+                ("HOSTNAME", mailserver),
             ]
             echo.columns(
                 [c[0] for c in mx_d],
@@ -634,38 +604,86 @@ def main_check_domains():
             echo.br()
 
         else:
-            echo.h3("spf record found")
+            echo.h3("ptr record found")
             echo.br()
 
-        txt_f = Filepath(keys_d, "{}.txt".format(domain))
-        if txt_f.exists():
-            contents = txt_f.contents()
-            m = re.match("^(\S+)", contents)
-            subdomain = "{}.{}".format(m.group(1), domain)
+    domains_f = Filepath("/etc/postfix/virtual/domains")
+    for domain in domains_f.lines():
 
-            d = dns.Domain(subdomain)
-            txts = d.txt("dkim")
-            if not txts:
-                echo.h1("DNS TXT DKIM RECORD NEEDED FOR {}".format(subdomain))
+        echo.banner("Checking {} DNS records".format(domain))
+        echo.br()
 
-                contents = txt_f.contents()
-                m = re.match("^(\S+)", contents)
-                echo.h2("NAME")
-                echo.indent(subdomain, "    ")
-                echo.hr()
-                mv = re.search("v=\S+", contents)
-                mk = re.search("k=\S+", contents)
-                mp = re.search("p=[^\"]+", contents)
-                echo.h2("VALUE")
-                echo.indent("{} {} {}".format(mv.group(0), mk.group(0), mp.group(0)), "    ")
-
+        if "mx" in records:
+            d = dns.Domain(domain)
+            mx = d.mx(mailserver)
+            if not mx:
+                echo.h1("DNS MX RECORD NEEDED FOR {}".format(domain))
                 echo.br()
-                echo.bar("*")
+                mx_d = [
+                    ("HOSTNAME", "@"),
+                    ("MAILSERVER DOMAIN", mailserver),
+                    ("PRIORITY", "100"),
+                ]
+                echo.columns(
+                    [c[0] for c in mx_d],
+                    [c[1] for c in mx_d],
+                )
                 echo.br()
 
             else:
-                echo.h3("dkim record found")
+                echo.h3("mx record found")
                 echo.br()
+
+        if "spf" in records:
+            txts = d.txt("spf")
+            if not txts:
+                echo.h1("DNS TXT SPF RECORD NEEDED FOR {}".format(domain))
+                echo.br()
+                mx_d = [
+                    ("HOSTNAME", domain),
+                    ("TEXT", "v=spf1 mx ~all"),
+                ]
+                echo.columns(
+                    [c[0] for c in mx_d],
+                    [c[1] for c in mx_d],
+                )
+                echo.br()
+
+            else:
+                echo.h3("spf record found")
+                echo.br()
+
+        if "dkim" in records:
+            txt_f = Filepath(keys_d, "{}.txt".format(domain))
+            if txt_f.exists():
+                contents = txt_f.contents()
+                m = re.match("^(\S+)", contents)
+                subdomain = "{}.{}".format(m.group(1), domain)
+
+                mv = re.search("v=\S+", contents)
+                mk = re.search("k=\S+", contents)
+                mp = re.search("p=[^\"]+", contents)
+                dkim_text = "{} {} {}".format(mv.group(0), mk.group(0), mp.group(0))
+
+                d = dns.Domain(subdomain)
+                txts = d.txt("dkim")
+
+                if not txts or (txts[0] != dkim_text):
+                    echo.h1("DNS TXT DKIM RECORD NEEDED FOR {}".format(subdomain))
+
+                    echo.h2("NAME")
+                    echo.indent(subdomain, "    ")
+                    echo.hr()
+                    echo.h2("VALUE")
+                    echo.indent(dkim_text, "    ")
+
+                    echo.br()
+                    echo.bar("*")
+                    echo.br()
+
+                else:
+                    echo.h3("dkim record found")
+                    echo.br()
 
 
 @args(main_configure_recv, main_configure_send)
