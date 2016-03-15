@@ -354,6 +354,9 @@ def main_dkim_genkeys():
         add_dkim_domain(domain, gen_key=True)
         main_check_domains(["dkim"])
 
+    cli.postfix_reload()
+    cli.opendkim_reload()
+
 
 def add_dkim_domain(domain, gen_key=False):
     echo.h3("Configuring DKIM for {}", domain)
