@@ -9,7 +9,7 @@ import re
 from captain import echo, exit, ArgError
 from captain.decorators import arg, args
 
-from stockton import __version__, cli
+from stockton import __version__, cli, dns
 from stockton.concur.formats.postfix import Main, SMTPd, Master
 from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.concur.formats.generic import SpaceConfig
@@ -395,25 +395,6 @@ def add_dkim_domain(domain):
         is_new_domain = True
         trustedhosts_f.append("*.{}\n".format(domain))
 
-    echo.banner(
-        "YOU MIGHT NEED TO ADD A DNS TXT RECORD FOR {}".format(domain),
-        txt_f.path
-    )
-
-    contents = txt_f.contents()
-    m = re.match("^(\S+)", contents)
-    echo.h2("NAME")
-    echo.indent("{}.{}".format(m.group(1), domain), "    ")
-    echo.hr()
-    mv = re.search("v=\S+", contents)
-    mk = re.search("k=\S+", contents)
-    mp = re.search("p=[^\"]+", contents)
-    echo.h2("VALUE")
-    echo.indent("{} {} {}".format(mv.group(0), mk.group(0), mp.group(0)), "    ")
-
-    echo.br()
-    echo.bar("*")
-
 
 def add_postfix_domains(domain, proxy_domains, proxy_email):
 
@@ -562,6 +543,131 @@ def main_lockdown(mailserver):
     cli.postfix_reload()
 
 
+def main_check_domains():
+
+    opendkim_d = Dirpath("/etc/opendkim")
+    keys_d = Dirpath(opendkim_d, "keys")
+
+    m = Main(prototype_path=Main.dest_path)
+    #domain = m["mydomain"].val
+    mailserver = m["myhostname"].val
+    external_ip = cli.ip()
+
+    echo.banner("Checking {} DNS records".format(mailserver))
+    d = dns.Domain(mailserver)
+    a = d.a(external_ip)
+    if not a:
+        echo.h1("DNS A RECORD NEEDED FOR {}".format(mailserver))
+        echo.br()
+
+        mx_d = [
+            ("HOSTNAME", mailserver),
+            ("TARGET", external_ip),
+        ]
+        echo.columns(
+            [c[0] for c in mx_d],
+            [c[1] for c in mx_d],
+        )
+        echo.br()
+
+    else:
+        echo.h3("mx record found")
+        echo.br()
+
+    d = dns.Domain(external_ip)
+    ptr = d.ptr(mailserver)
+    if not ptr:
+        echo.h1("DNS PTR RECORD NEEDED FOR {}".format(external_ip))
+        echo.br()
+
+        mx_d = [
+            ("HOSTNAME", mailserver),
+        ]
+        echo.columns(
+            [c[0] for c in mx_d],
+            [c[1] for c in mx_d],
+        )
+        echo.br()
+
+    else:
+        echo.h3("ptr record found")
+        echo.br()
+
+    domains_f = Filepath("/etc/postfix/virtual/domains")
+    for domain in domains_f.lines():
+
+        echo.banner("Checking {} DNS records".format(domain))
+        echo.br()
+
+        d = dns.Domain(domain)
+        mx = d.mx(mailserver)
+        if not mx:
+            echo.h1("DNS MX RECORD NEEDED FOR {}".format(domain))
+            echo.br()
+            mx_d = [
+                ("HOSTNAME", "@"),
+                ("MAILSERVER DOMAIN", mailserver),
+                ("PRIORITY", "100"),
+            ]
+            echo.columns(
+                [c[0] for c in mx_d],
+                [c[1] for c in mx_d],
+            )
+            echo.br()
+
+        else:
+            echo.h3("mx record found")
+            echo.br()
+
+        txts = d.txt("spf")
+        if not txts:
+            echo.h1("DNS TXT SPF RECORD NEEDED FOR {}".format(domain))
+            echo.br()
+            mx_d = [
+                ("HOSTNAME", domain),
+                ("TEXT", "v=spf1 mx ~all"),
+            ]
+            echo.columns(
+                [c[0] for c in mx_d],
+                [c[1] for c in mx_d],
+            )
+            echo.br()
+
+        else:
+            echo.h3("spf record found")
+            echo.br()
+
+        txt_f = Filepath(keys_d, "{}.txt".format(domain))
+        if txt_f.exists():
+            contents = txt_f.contents()
+            m = re.match("^(\S+)", contents)
+            subdomain = "{}.{}".format(m.group(1), domain)
+
+            d = dns.Domain(subdomain)
+            txts = d.txt("dkim")
+            if not txts:
+                echo.h1("DNS TXT DKIM RECORD NEEDED FOR {}".format(subdomain))
+
+                contents = txt_f.contents()
+                m = re.match("^(\S+)", contents)
+                echo.h2("NAME")
+                echo.indent(subdomain, "    ")
+                echo.hr()
+                mv = re.search("v=\S+", contents)
+                mk = re.search("k=\S+", contents)
+                mp = re.search("p=[^\"]+", contents)
+                echo.h2("VALUE")
+                echo.indent("{} {} {}".format(mv.group(0), mk.group(0), mp.group(0)), "    ")
+
+                echo.br()
+                echo.bar("*")
+                echo.br()
+
+            else:
+                echo.h3("dkim record found")
+                echo.br()
+
+
 @args(main_configure_recv, main_configure_send)
 def main_install(domain, mailserver, smtp_username, smtp_password, country, state, city, proxy_domains, proxy_email):
 
@@ -571,6 +677,7 @@ def main_install(domain, mailserver, smtp_username, smtp_password, country, stat
     main_configure_dkim()
     main_configure_srs()
     main_lockdown(mailserver)
+    main_check_domains()
 
 
 def console():

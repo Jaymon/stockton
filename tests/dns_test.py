@@ -84,3 +84,37 @@ class DomainTest(TestCase):
         vs = d.txt("000.00.000.000")
         self.assertEqual(0, len(vs))
 
+    def test_ptr(self):
+        d = Domain("123.456.789.100")
+        def monkey_query(self, *args, **kwargs):
+            return "\n".join([
+                "{}.in-addr.arpa domain name pointer {}.".format(d.host, "example.com"),
+                ""
+            ])
+        testdata.patch(d, query=monkey_query)
+
+        vs = d.ptr()
+        self.assertEqual(1, len(vs))
+
+        vs = d.ptr("example.com")
+        self.assertEqual(1, len(vs))
+
+        vs = d.ptr("000.00.000.000")
+        self.assertEqual(0, len(vs))
+
+    def test_rdns(self):
+        def monkey_query(self, *args, **kwargs):
+            return "\n".join([
+                "123.456.789.100.in-addr.arpa domain name pointer {}.".format(d.host),
+                ""
+            ])
+        MonkeyDomain = testdata.patch(
+            Domain,
+            a=lambda *a, **kw: ["123.456.789.100"],
+            query=monkey_query
+        )
+
+        d = MonkeyDomain("example.com")
+        vs = d.rdns()
+        self.assertEqual("123.456.789.100", vs[0])
+

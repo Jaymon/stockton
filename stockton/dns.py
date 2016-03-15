@@ -1,3 +1,9 @@
+"""
+DNS fun stuff
+
+some relevant reading:
+http://stackoverflow.com/questions/19322962/how-can-i-list-all-dns-records
+"""
 import re
 import subprocess
 
@@ -71,13 +77,31 @@ class Domain(object):
 
         return ret
 
-    def ip(self):
-        pass
+    def ptr(self, filter_regex=""):
+        output = self.query("PTR")
+        records = [m[0] for m in self.records(
+            "^{}.*?\s+domain\s+name\s+pointer\s+(.+?)\.?$".format(self.host),
+            output,
+            filter_regex
+        )]
+        return records
+
+    def rdns(self):
+        ret = []
+        ips = self.a()
+        for ip in ips:
+            d = type(self)(ip)
+            for ptr in d.ptr():
+                if self.host in ptr:
+                    ret.append(ip)
+        return ret
 
     def query(self, record):
         output = subprocess.check_output([
             "host",
-            "-t {}".format(record),
+            #"-t {}".format(record),
+            "-t",
+            record,
             self.host
         ])
         return output
