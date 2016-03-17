@@ -100,7 +100,11 @@ class Dirpath(Path):
             break
 
     def delete(self):
-        shutil.rmtree(self.path)
+        try:
+            shutil.rmtree(self.path)
+
+        except OSError:
+            pass
 
     def files(self, regex=None):
         regexp = re.compile(regex, re.I) if regex else None
@@ -242,7 +246,15 @@ class Filepath(Path):
 
     def contains(self, regex, flags=0):
         flags |= re.M
-        m = re.search(regex, self.contents(), flags=flags)
+        m = None
+        try:
+            m = re.search(regex, self.contents(), flags=flags)
+
+        except IOError:
+            # TODO -- check for file not existing EOINT or whatever and only
+            # suppress that
+            # raised when file doesn't exist
+            pass
         return True if m else False
 
     def delete_lines(self, regex, flags=0):

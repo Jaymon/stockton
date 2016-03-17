@@ -12,7 +12,7 @@ from stockton.concur.formats.postfix import Main, SMTPd, Master
 
 class Stockton(Captain):
     def __init__(self, subcommand):
-        self.cmd_prefix = "python -m stockton {}".format(subcommand)
+        self.cmd_prefix = "python -m stockton --verbose {}".format(subcommand.replace("_", "-"))
         super(Stockton, self).__init__("")
 
     def run(self, arg_str='', **process_kwargs):
@@ -31,18 +31,13 @@ def setUpModule():
     if os.environ["USER"] != "root":
         raise RuntimeError("User is not root, re-run this test with sudo")
 
-
-def tearDownModule():
-    pass
-
-
-def remove_postfix():
-    cli.run("apt-get purge -y postfix")
+# def tearDownModule():
+#     pass
 
 
 class PrepareTest(TestCase):
     def setUp(self):
-        remove_postfix()
+        cli.purge("postfix")
 
     def test_run(self):
         d = Dirpath("etc", "postfix")
@@ -99,19 +94,19 @@ class ConfigureTest(TestCase):
         r = s.run(arg_str)
 
         r = cli.run(
-            "echo QUIT | smtptest -a smtp@example.com -w 1234 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
+            "echo QUIT | smtptest -a smtp@example.com -w 1234 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
             capture_output=True
         )
         self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
 
         r = cli.run(
-            "echo QUIT | smtptest -a smtp@example.com -w 9876 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
+            "echo QUIT | smtptest -a smtp@example.com -w 9876 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
             capture_output=True
         )
         self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
 
         r = cli.run(
-            "echo QUIT | smtptest -a foo@example.com -w 1234 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
+            "echo QUIT | smtptest -a foo@example.com -w 1234 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
             capture_output=True
         )
         self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
@@ -194,9 +189,7 @@ class DomainTest(TestCase):
         s = Stockton("configure-recv")
         r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
 
-
-        proxy_domains = testdata.create_dir()
-        f = testdata.create_files({
+        proxy_domains = testdata.create_files({
             "foo.com": "\n".join([
                 "one@foo.com                foo@dest.com",
                 "two@foo.com                foo@dest.com",
@@ -209,8 +202,9 @@ class DomainTest(TestCase):
                 "three@bar.com              bar@dest.com",
                 "",
             ]),
-        }, proxy_domains)
+        })
 
+        s = Stockton("add-domain")
         r = s.run("--proxy-domains={}".format(proxy_domains))
 
         proxy_domains2 = testdata.create_dir()
@@ -279,13 +273,32 @@ class DomainTest(TestCase):
         self.assertTrue("*.one.com" in trustedhosts_f.lines())
         self.assertTrue("*.two.com" in trustedhosts_f.lines())
 
+    def test_add_domain_smtp(self):
+        s = Stockton("configure-recv")
+        r = s.run("--mailserver=mail.example.com")
+        s = Stockton("configure-send")
+        arg_str = "--domain=example.com --mailserver=mail.example.com --smtp-password=1234 --state=CA --city=\"San Francisco\""
+        r = s.run(arg_str)
+
+        s = Stockton("add-domain")
+        r = s.run("--domain=one.com --proxy-email=one@dest.com --smtp-password=1234")
+
+        cli.package("cyrus-clients-2.4") # for smtptest
+        r = cli.run(
+            "echo QUIT | smtptest -a smtp@one.com -w 1234 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
+            capture_output=True
+        )
+        self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
+
+
+
 
 class LockdownTest(TestCase):
     def setUp(self):
         cli.running("postfix")
 
     def test_run(self):
-        s = Stockton("configure_recv")
+        s = Stockton("configure-recv")
         r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
 
         s = Stockton("lockdown")
@@ -294,5 +307,4 @@ class LockdownTest(TestCase):
 
         helo_f = Filepath("/etc/postfix/helo.regexp")
         self.assertTrue(helo_f.exists())
-
 

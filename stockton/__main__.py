@@ -15,6 +15,8 @@ from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.concur.formats.generic import SpaceConfig
 from stockton.path import Dirpath, Filepath, Sentinal
 
+from stockton.interface import SMTP, Postfix, DKIM
+
 
 def main_prepare():
     echo.h2("Installing Postfix")
@@ -29,7 +31,7 @@ def main_prepare():
     cli.package("postfix")
 
 
-@arg('--domain', help='The email domain (eg, example.com)')
+@arg('--domain', default="", help='The email domain (eg, example.com)')
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
 @arg('--proxy-domains', default="", help='The directory containing domain configuration files')
 @arg('--proxy-email', default="", help='The final destination email address')
@@ -38,17 +40,10 @@ def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
 
     echo.h2("Configuring Postfix to receive emails")
 
-    # remove any .bak files in this directory, we do this to make sure any other
-    # commands that configure postfix will be able to make correct snapshots of
-    # the main.cf file to remain idempotent
-    postfix_d = Dirpath("/etc/postfix")
-    postfix_d.delete_files(".bak$")
+    p = Postfix()
+    p.reset(really_delete_files=True)
 
-    virtual_d = Dirpath("/etc/postfix/virtual")
-    echo.h3("Clearing {}", virtual_d)
-    virtual_d.clear()
-
-    m = Main()
+    m = p.main("")
     m.update(
         ("alias_maps", "hash:/etc/aliases"), # http://unix.stackexchange.com/a/244200/118750
         ("myhostname", mailserver),
@@ -57,13 +52,13 @@ def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
     )
     m.save()
 
-    add_postfix_domains(domain, proxy_domains, proxy_email)
+    if domain:
+        p.add_domains(domain, proxy_domains, proxy_email)
 
     # make backup of master.cf
-    master_f = Filepath(Master.dest_path)
-    master_bak = master_f.backup(ignore_existing=False)
+    master_bak = p.master_f.backup(ignore_existing=False)
 
-    cli.postfix_reload()
+    p.restart()
 
 
 @arg('--domain', help='The email domain (eg, example.com)')
@@ -82,12 +77,8 @@ def main_configure_send(domain, mailserver, smtp_username, smtp_password, countr
 
     cli.package("sasl2-bin", "libsasl2-modules")
 
-    #cli.run("echo \"{}\" | saslpasswd2 -c -u {} {} -p".format(smtp_password, mailserver, smtp_username))
-    cli.run("echo \"{}\" | saslpasswd2 -c -u {} {} -p".format(smtp_password, domain, smtp_username))
-
-    sasldb2 = Filepath("/etc/sasldb2")
-    sasldb2.chmod(400)
-    sasldb2.chown("postfix")
+    s = SMTP()
+    s.add_user(smtp_username, smtp_password, domain)
 
     s = SMTPd()
     s.update(
@@ -100,9 +91,9 @@ def main_configure_send(domain, mailserver, smtp_username, smtp_password, countr
 
     certs_d = Dirpath("/etc/postfix/certs")
     certs_d.create()
-    certs_key = Filepath(certs_d, "{}.key".format(domain))
-    certs_crt = Filepath(certs_d, "{}.crt".format(domain))
-    certs_pem = Filepath(certs_d, "{}.pem".format(domain))
+    certs_key = Filepath(certs_d, "{}.key".format(mailserver))
+    certs_crt = Filepath(certs_d, "{}.crt".format(mailserver))
+    certs_pem = Filepath(certs_d, "{}.pem".format(mailserver))
 
     cli.package("openssl", only_upgrade=True)
 
@@ -166,11 +157,12 @@ def main_configure_dkim():
 
     cli.package("opendkim", "opendkim-tools")
 
-    opendkim_d = Dirpath("/etc/opendkim")
+    dk = DKIM()
+    opendkim_d = dk.opendkim_d
     opendkim_d.create()
     opendkim_d.clear()
 
-    keys_d = Dirpath(opendkim_d, "keys")
+    keys_d = dk.keys_d
     keys_d.create()
     keys_d.clear()
 
@@ -187,13 +179,15 @@ def main_configure_dkim():
         hosts.append(external_ip)
 
     hosts.append("")
-    trustedhosts_f = opendkim_d.create_file("TrustedHosts", "\n".join(hosts))
+    trustedhosts_f = dk.trustedhosts_f
+    trustedhosts_f.writelines(hosts)
+    #trustedhosts_f = opendkim_d.create_file("TrustedHosts", "\n".join(hosts))
 
-    keytable_f = opendkim_d.create_file("KeyTable")
-    signingtable_f = opendkim_d.create_file("SigningTable")
+    keytable_f = dk.keytable_f
+    signingtable_f = dk.signingtable_f
 
     # make backup of config
-    config_f = Filepath(OpenDKIM.dest_path)
+    config_f = dk.config_f
     config_bak = config_f.backup(ignore_existing=False)
 
     c = OpenDKIM(prototype_path=config_bak.path)
@@ -213,7 +207,8 @@ def main_configure_dkim():
     )
     c.save()
 
-    m = Main(prototype_path=Main.dest_path)
+    p = Postfix()
+    m = p.main()
     m.update(
         ("milter_default_action", "accept"),
         # http://lists.opendkim.org/archive/opendkim/users/2011/08/1297.html
@@ -226,10 +221,10 @@ def main_configure_dkim():
     # http://unix.stackexchange.com/a/74491/118750
     cli.run("adduser postfix opendkim")
 
-    add_dkim_domains()
+    dk.add_domains()
 
-    cli.postfix_reload()
-    cli.opendkim_reload()
+    p.restart()
+    dk.restart()
 
 
 def main_configure_srs():
@@ -324,141 +319,34 @@ def main_delete_domain(domain):
 @arg('--domain', default="", help='The email domain (eg, example.com)')
 @arg('--proxy-domains', default="", help='The directory containing domain configuration files')
 @arg('--proxy-email', default="", help='The final destination email address')
-def main_add_domain(domain, proxy_domains, proxy_email):
-    add_postfix_domains(domain, proxy_domains, proxy_email)
-    add_dkim_domains()
+@arg('--smtp-username', default="smtp", help='smtp username for sending emails')
+@arg('--smtp-password', default="", help='smtp password for sending emails')
+def main_add_domain(domain, proxy_domains, proxy_email, smtp_username, smtp_password):
 
-    cli.postfix_reload()
-    cli.opendkim_reload()
+    p = Postfix()
+    p.add_domains(domain, proxy_domains, proxy_email)
 
+    dk = DKIM()
+    dk.add_domains()
 
-def add_dkim_domains():
+    if smtp_password:
+        s = SMTP()
+        s.add_user(smtp_username, smtp_password, domain)
 
-#     opendkim_d = Dirpath("/etc/opendkim")
-#     keys_d = Dirpath(opendkim_d, "keys")
-#     keytable_f = Filepath(opendkim_d, "KeyTable")
-#     keytable_f.clear()
-#     signingtable_f = Filepath(opendkim_d, "SigningTable")
-#     signingtable_f.clear()
-#     trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
-#     trustedhosts_f.clear()
-
-    domains_f = Filepath("/etc/postfix/virtual/domains")
-    for domain in domains_f.lines():
-        add_dkim_domain(domain)
+    p.restart()
+    dk.restart()
 
 
 def main_dkim_genkeys():
+    dk = DKIM()
+    p = Postfix()
     domains_f = Filepath("/etc/postfix/virtual/domains")
-    for domain in domains_f.lines():
-        add_dkim_domain(domain, gen_key=True)
-        main_check_domains(["dkim"])
+    for domain in p.domains:
+        dk.add_domain(domain, gen_key=True)
 
-    cli.postfix_reload()
-    cli.opendkim_reload()
-
-
-def add_dkim_domain(domain, gen_key=False):
-    echo.h3("Configuring DKIM for {}", domain)
-
-    opendkim_d = Dirpath("/etc/opendkim")
-    keys_d = Dirpath(opendkim_d, "keys")
-    keytable_f = Filepath(opendkim_d, "KeyTable")
-    signingtable_f = Filepath(opendkim_d, "SigningTable")
-    trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
-
-    private_f = Filepath(keys_d, "{}.private".format(domain))
-    txt_f = Filepath(keys_d, "{}.txt".format(domain))
-    if not txt_f.exists() or gen_key:
-        #cli.run("opendkim-genkey --domain={} --verbose --directory=\"{}\"".format(
-        cli.run("opendkim-genkey --bits=1024 --domain={} --directory=\"{}\"".format(
-            domain,
-            keys_d.path
-        ))
-
-        private_f = Filepath(keys_d, "default.private")
-        private_f.rename("{}.private".format(domain))
-        private_f.chmod(600)
-        private_f.chown("opendkim:opendkim")
-
-        txt_f = Filepath(keys_d, "default.txt")
-        txt_f.rename("{}.txt".format(domain))
-
-    if not keytable_f.contains(domain):
-        keytable_f.append("default._domainkey.{} {}:default:{}\n".format(
-            domain,
-            domain,
-            private_f.path
-        ))
-
-    if not signingtable_f.contains(domain):
-        signingtable_f.append("{} default._domainkey.{}\n".format(
-            domain,
-            domain
-        ))
-
-    if not trustedhosts_f.contains(domain):
-        trustedhosts_f.append("*.{}\n".format(domain))
-
-
-def add_postfix_domains(domain, proxy_domains, proxy_email):
-
-    if not proxy_domains:
-        if not domain and not proxy_email:
-            raise ValueError("Either pass in proxy_domains or (domain and proxy_emails)")
-
-    # create directory /etc/postfix/virtual
-    virtual_d = Dirpath("/etc/postfix/virtual")
-    virtual_d.create()
-
-    # create addresses directory
-    addresses_d = Dirpath(virtual_d, "addresses")
-    addresses_d.create()
-
-    domains_f = Filepath(virtual_d, "domains")
-    domains_f.create()
-    old_domains = set(domains_f.lines())
-    new_domains = set()
-    domain_addresses = []
-
-    if proxy_email:
-        echo.h3("Adding catchall for {} routing to {}", domain, proxy_email)
-        domain_f = Filepath(addresses_d, domain)
-        domain_c = SpaceConfig(dest_path=domain_f.path)
-        domain_c["@{}".format(domain)] = proxy_email
-        domain_c.save()
-        new_domains.add(domain)
-
-    if proxy_domains:
-        echo.h3("Adding domain files found in directory {} to postfix", proxy_domains)
-        domains_d = Dirpath(proxy_domains)
-        for f in domains_d.files():
-            domain = f.name
-            domain = re.sub("\.txt$", "", domain, flags=re.I)
-            echo.h3("Compiling proxy addresses from {}", domain)
-            domain_f = Filepath(addresses_d, domain)
-            f.copy(domain_f)
-            new_domains.add(domain)
-
-    domains_f.writelines(old_domains.union(new_domains))
-
-    domain_hashes = []
-    for domain in domains_f.lines():
-        domain_f = Filepath(addresses_d, domain)
-        domain_hashes.append("hash:{}".format(domain_f.path))
-
-    # this is an additive editing of the conf file, so we use the active conf
-    # as the prototype
-    m = Main(prototype_path=Main.dest_path)
-    m.update(
-        ("virtual_alias_domains", domains_f.path),
-        ("virtual_alias_maps", ",\n  ".join(domain_hashes))
-    )
-    m.save()
-
-    for domain in new_domains:
-        addresses_f = Filepath(addresses_d, domain)
-        cli.run("postmap {}".format(addresses_f))
+    main_check_domains(["dkim"])
+    p.restart()
+    dk.restart()
 
 
 def disabled_configure_greylist(self):
