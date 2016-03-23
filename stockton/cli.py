@@ -21,6 +21,7 @@ def ip():
 def cached_run(cmd, ttl=3600, **process_kwargs):
     # http://stackoverflow.com/questions/5297448/how-to-get-md5-sum-of-a-string
     cmd_h = hashlib.md5(cmd).hexdigest()
+    cmd_h = "{}-{}".format(os.environ["USER"], cmd_h)
     f = Filepath.get_temp(cmd_h)
     if f.modified_within(seconds=ttl):
         output = f.contents()

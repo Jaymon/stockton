@@ -21,3 +21,6 @@ class CliTest(TestCase):
         r3 = cli.cached_run(cmd, ttl=1)
         self.assertNotEqual(r, r3)
 
+    def test_ip(self):
+        ip = cli.ip()
+        ip2 = cli.ip()

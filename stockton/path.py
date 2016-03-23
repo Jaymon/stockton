@@ -284,10 +284,11 @@ class Filepath(Path):
         """
         if not self.exists(): return False
 
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now()
         then = self.modified
         timedelta_kwargs["seconds"] = seconds
         td_check = datetime.timedelta(**timedelta_kwargs)
+        #pout.v(now, td_check, then, (now - td_check))
         return (now - td_check) < then
 
 

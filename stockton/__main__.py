@@ -31,11 +31,11 @@ def main_prepare():
     cli.package("postfix")
 
 
-@arg('--domain', default="", help='The email domain (eg, example.com)')
+@arg('domain', default="", help='The email domain (eg, example.com)')
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
-@arg('--proxy-domains', default="", help='The directory containing domain configuration files')
+@arg('--proxy-file', default="", help='The file containing domain addresses to proxy emails')
 @arg('--proxy-email', default="", help='The final destination email address')
-def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
+def main_configure_recv(domain, mailserver, proxy_file, proxy_email):
     # http://www.postfix.org/VIRTUAL_README.html
 
     echo.h2("Configuring Postfix to receive emails")
@@ -53,7 +53,7 @@ def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
     m.save()
 
     if domain:
-        p.add_domains(domain, proxy_domains, proxy_email)
+        p.add_domain(domain, proxy_file, proxy_email)
 
     # make backup of master.cf
     master_bak = p.master_f.backup(ignore_existing=False)
@@ -61,7 +61,7 @@ def main_configure_recv(domain, mailserver, proxy_domains, proxy_email):
     p.restart()
 
 
-@arg('--domain', help='The email domain (eg, example.com)')
+@arg('domain', help='The email domain (eg, example.com)')
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
 @arg('--smtp-username', default="smtp", help='smtp username for sending emails')
 @arg('--smtp-password', help='smtp password for sending emails')
@@ -146,6 +146,12 @@ def main_configure_send(domain, mailserver, smtp_username, smtp_password, countr
 
 
 def main_configure_dkim():
+    """DomainKeys Identified Mail (DKIM)
+
+    Setup dkim support
+
+    http://www.dkim.org/
+    """
 
     # setup for multi-domain support thanks to
     # http://askubuntu.com/questions/438756/using-dkim-in-my-server-for-multiple-domains-websites
@@ -228,6 +234,12 @@ def main_configure_dkim():
 
 
 def main_configure_srs():
+    """SRS: Sender Rewriting Scheme
+
+    This configures SRS so SPF will work correctly and treat this MTA as a proxy
+
+    http://www.openspf.org/SRS
+    """
 
     # thanks to
     # http://seasonofcode.com/posts/setting-up-dkim-and-srs-in-postfix.html
@@ -273,13 +285,14 @@ def main_configure_srs():
     cli.postfix_reload()
 
 
-@arg('--domain', help='The email domain to remove (eg, example.com)')
+@arg('domain', help='The email domain to remove (eg, example.com)')
 def main_delete_domain(domain):
-    m = Main(prototype_path=Main.dest_path)
-    if domain == m["mydomain"].val:
-        raise ArgError("domain cannot be the Postfix main.cf mydomain value")
-
+    """remove a domain from the server"""
     echo.h3("Deleting domain {}", domain)
+
+    # TODO -- most of this should be moved to postfix.py and dkim.py files
+
+    m = Main(prototype_path=Main.dest_path)
 
     # remove postfix settings
     virtual_d = Dirpath("/etc/postfix/virtual")
@@ -316,18 +329,19 @@ def main_delete_domain(domain):
     cli.opendkim_reload()
 
 
-@arg('--domain', default="", help='The email domain (eg, example.com)')
-@arg('--proxy-domains', default="", help='The directory containing domain configuration files')
+@arg('domain', default="", help='The email domain (eg, example.com)')
+@arg('--proxy-file', default="", help='The file containing domain addresses to proxy emails')
+#@arg('--proxy-domains', default="", help='The directory containing domain configuration files')
 @arg('--proxy-email', default="", help='The final destination email address')
 @arg('--smtp-username', default="smtp", help='smtp username for sending emails')
 @arg('--smtp-password', default="", help='smtp password for sending emails')
-def main_add_domain(domain, proxy_domains, proxy_email, smtp_username, smtp_password):
+def main_add_domain(domain, proxy_file, proxy_email, smtp_username, smtp_password):
 
     p = Postfix()
-    p.add_domains(domain, proxy_domains, proxy_email)
+    p.add_domain(domain, proxy_file, proxy_email)
 
     dk = DKIM()
-    dk.add_domains()
+    dk.add_domain(domain)
 
     if smtp_password:
         s = SMTP()
@@ -336,6 +350,8 @@ def main_add_domain(domain, proxy_domains, proxy_email, smtp_username, smtp_pass
     p.restart()
     dk.restart()
 
+    main_check_domain(domain)
+
 
 def main_dkim_genkeys():
     dk = DKIM()
@@ -343,8 +359,8 @@ def main_dkim_genkeys():
     domains_f = Filepath("/etc/postfix/virtual/domains")
     for domain in p.domains:
         dk.add_domain(domain, gen_key=True)
+        main_check_domain(domain, ["dkim"])
 
-    main_check_domains(["dkim"])
     p.restart()
     dk.restart()
 
@@ -435,7 +451,12 @@ def main_lockdown(mailserver):
 
     cli.postfix_reload()
 
+# TODO -- I have renamed main_check_domains to domain, so things need to be fixed
+# the add-domain should take a domain-addresses and there should be a new command
+# add-domains that take an addresses dir (what is proxy-domains
 
+
+@arg('domain', help='The domain whose dns will be checked (eg, example.com)')
 @arg(
     '--record', "-r",
     action="append",
@@ -444,137 +465,48 @@ def main_lockdown(mailserver):
     default=None,
     choices=["mx", "a", "ptr", "spf", "dkim"],
 )
-def main_check_domains(records):
+def main_check_domain(domain, records=None):
     if not records:
         records = ["mx", "a", "ptr", "spf", "dkim"]
 
-    opendkim_d = Dirpath("/etc/opendkim")
-    keys_d = Dirpath(opendkim_d, "keys")
-
-    m = Main(prototype_path=Main.dest_path)
-    #domain = m["mydomain"].val
-    mailserver = m["myhostname"].val
+    pf = Postfix()
+    mailserver = pf.mailserver
     external_ip = cli.ip()
 
-    if "a" in records:
-        echo.banner("Checking {} DNS records".format(mailserver))
-        d = dns.Domain(mailserver)
-        a = d.a(external_ip)
-        if not a:
-            echo.h1("DNS A RECORD NEEDED FOR {}".format(mailserver))
+    def print_record(name, domain, records):
+        if records:
+            echo.h1("DNS {} RECORD NEEDED FOR {}", name, domain)
             echo.br()
 
-            mx_d = [
-                ("HOSTNAME", mailserver),
-                ("TARGET", external_ip),
-            ]
-            echo.columns(
-                [c[0] for c in mx_d],
-                [c[1] for c in mx_d],
-            )
+            echo.columns(*zip(*records))
             echo.br()
 
         else:
-            echo.h3("mx record found")
+            echo.h3("{} record found", name)
             echo.br()
+
+    if "a" in records:
+        d = dns.Mailserver(mailserver, external_ip)
+        print_record("A", mailserver, d.needed_a())
 
     if "ptr" in records:
-        d = dns.Domain(external_ip)
-        ptr = d.ptr(mailserver)
-        if not ptr:
-            echo.h1("DNS PTR RECORD NEEDED FOR {}".format(external_ip))
-            echo.br()
+        d = dns.Mailserver(mailserver, external_ip)
+        print_record("PTR", mailserver, d.needed_ptr())
 
-            mx_d = [
-                ("HOSTNAME", mailserver),
-            ]
-            echo.columns(
-                [c[0] for c in mx_d],
-                [c[1] for c in mx_d],
-            )
-            echo.br()
+    if "mx" in records:
+        d = dns.Alias(domain, mailserver)
+        print_record("MX", domain, d.needed_mx())
 
-        else:
-            echo.h3("ptr record found")
-            echo.br()
+    if "spf" in records:
+        d = dns.Alias(domain, mailserver)
+        print_record("SPF", domain, d.needed_spf())
 
-    domains_f = Filepath("/etc/postfix/virtual/domains")
-    for domain in domains_f.lines():
-
-        echo.banner("Checking {} DNS records".format(domain))
-        echo.br()
-
-        if "mx" in records:
-            d = dns.Domain(domain)
-            mx = d.mx(mailserver)
-            if not mx:
-                echo.h1("DNS MX RECORD NEEDED FOR {}".format(domain))
-                echo.br()
-                mx_d = [
-                    ("HOSTNAME", "@"),
-                    ("MAILSERVER DOMAIN", mailserver),
-                    ("PRIORITY", "100"),
-                ]
-                echo.columns(
-                    [c[0] for c in mx_d],
-                    [c[1] for c in mx_d],
-                )
-                echo.br()
-
-            else:
-                echo.h3("mx record found")
-                echo.br()
-
-        if "spf" in records:
-            txts = d.txt("spf")
-            if not txts:
-                echo.h1("DNS TXT SPF RECORD NEEDED FOR {}".format(domain))
-                echo.br()
-                mx_d = [
-                    ("HOSTNAME", domain),
-                    ("TEXT", "v=spf1 mx ~all"),
-                ]
-                echo.columns(
-                    [c[0] for c in mx_d],
-                    [c[1] for c in mx_d],
-                )
-                echo.br()
-
-            else:
-                echo.h3("spf record found")
-                echo.br()
-
-        if "dkim" in records:
-            txt_f = Filepath(keys_d, "{}.txt".format(domain))
-            if txt_f.exists():
-                contents = txt_f.contents()
-                m = re.match("^(\S+)", contents)
-                subdomain = "{}.{}".format(m.group(1), domain)
-
-                mv = re.search("v=\S+", contents)
-                mk = re.search("k=\S+", contents)
-                mp = re.search("p=[^\"]+", contents)
-                dkim_text = "{} {} {}".format(mv.group(0), mk.group(0), mp.group(0))
-
-                d = dns.Domain(subdomain)
-                txts = d.txt("dkim")
-
-                if not txts or (txts[0] != dkim_text):
-                    echo.h1("DNS TXT DKIM RECORD NEEDED FOR {}".format(subdomain))
-
-                    echo.h2("NAME")
-                    echo.indent(subdomain, "    ")
-                    echo.hr()
-                    echo.h2("VALUE")
-                    echo.indent(dkim_text, "    ")
-
-                    echo.br()
-                    echo.bar("*")
-                    echo.br()
-
-                else:
-                    echo.h3("dkim record found")
-                    echo.br()
+    if "dkim" in records:
+        try:
+            d = dns.Alias(domain, mailserver)
+            print_record("DKIM", domain, d.needed_dkim())
+        except IOError:
+            echo.h3("No local DKIM key found for {}", domain)
 
 
 @args(main_configure_recv, main_configure_send)
@@ -586,7 +518,7 @@ def main_install(domain, mailserver, smtp_username, smtp_password, country, stat
     main_configure_dkim()
     main_configure_srs()
     main_lockdown(mailserver)
-    main_check_domains()
+    main_check_domain(domain)
 
 
 def console():

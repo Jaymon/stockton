@@ -8,6 +8,32 @@ from ..path import Filepath, Dirpath
 from ..concur.formats.opendkim import OpenDKIM
 
 
+class DomainKey(object):
+    @property
+    def text(self):
+        dkim_text = "{} {} {}".format(self.v, self.k, self.p)
+        return dkim_text
+
+    def __init__(self, domain):
+        self.domain = domain
+
+        dk = DKIM()
+        txt_f = Filepath(dk.keys_d, "{}.txt".format(domain))
+        contents = txt_f.contents()
+        m = re.match("^(\S+)", contents)
+        self.subdomain = "{}.{}".format(m.group(1), domain)
+
+        mv = re.search("v=\S+", contents)
+        mk = re.search("k=\S+", contents)
+        mp = re.search("p=[^\"]+", contents)
+        self.v = mv.group(0)
+        self.k = mk.group(0)
+        self.p = mp.group(0)
+
+    def __str__(self):
+        return self.text
+
+
 class DKIM(object):
 
     @property
@@ -33,6 +59,9 @@ class DKIM(object):
     @property
     def trustedhosts_f(self):
         return Filepath(self.opendkim_d, "TrustedHosts")
+
+    def domainkey(self, domain):
+        return DomainKey(domain)
 
     def add_domains(self):
         #     opendkim_d = Dirpath("/etc/opendkim")
@@ -74,17 +103,19 @@ class DKIM(object):
             txt_f = Filepath(keys_d, "default.txt")
             txt_f.rename("{}.txt".format(domain))
 
+            dk = self.domainkey(domain)
+
         if not keytable_f.contains(domain):
-            keytable_f.append("default._domainkey.{} {}:default:{}\n".format(
-                domain,
+            keytable_f.append("{} {}:default:{}\n".format(
+                dk.subdomain,
                 domain,
                 private_f.path
             ))
 
         if not signingtable_f.contains(domain):
-            signingtable_f.append("{} default._domainkey.{}\n".format(
+            signingtable_f.append("{} {}\n".format(
                 domain,
-                domain
+                dk.subdomain
             ))
 
         if not trustedhosts_f.contains(domain):

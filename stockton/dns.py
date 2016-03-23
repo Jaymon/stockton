@@ -7,6 +7,78 @@ http://stackoverflow.com/questions/19322962/how-can-i-list-all-dns-records
 import re
 import subprocess
 
+from .interface.dkim import DKIM
+
+
+class Record(object):
+    pass
+
+
+class Mailserver(Record):
+
+    def __init__(self, domain, ip):
+        self.domain = Domain(str(domain))
+        self.ip = Domain(ip)
+
+    def needed_a(self):
+        ret = []
+        a = self.domain.a(self.ip.host)
+        if not a:
+            ret = [
+                ("hostname", self.domain.host),
+                ("target", self.ip.host),
+            ]
+        return ret
+
+    def needed_ptr(self):
+        ret = []
+        ptr = self.ip.ptr(self.domain.host)
+        if not ptr:
+            ret = [
+                ("hostname", self.domain.host),
+            ]
+        return ret
+
+
+class Alias(Record):
+    def __init__(self, domain, mailserver):
+        self.domain = Domain(str(domain))
+        self.mailserver = Domain(str(mailserver))
+
+    def needed_mx(self):
+        ret = []
+        mx = self.domain.mx(self.mailserver.host)
+        if not mx:
+            ret = [
+                ("hostname", self.domain.host),
+                ("mailserver domain", self.mailserver.host),
+                ("priority", "100"),
+            ]
+        return ret
+
+    def needed_spf(self):
+        ret = []
+        txts = self.domain.txt("spf")
+        if not txts:
+            ret = [
+                ("hostname", self.domain.host),
+                ("text", "v=spf1 mx ~all"),
+            ]
+        return ret
+
+    def needed_dkim(self):
+        ret = []
+        dk = DKIM()
+        domainkey = dk.domainkey(self.domain.host)
+        d = Domain(domainkey.subdomain)
+        txts = d.txt("dkim")
+        if not txts or (domainkey.p not in txts[0]):
+            ret = [
+                ("hostname", domainkey.subdomain),
+                ("text", domainkey.text),
+            ]
+        return ret
+
 
 class Domain(object):
     def __init__(self, host):
@@ -24,7 +96,8 @@ class Domain(object):
 
             if check_record:
                 m = regexp.search(check_record)
-                yield m.groups()
+                if m:
+                    yield m.groups()
 
     def nameservers(self, filter_regex=""):
         output = self.query("NS")
@@ -80,7 +153,7 @@ class Domain(object):
     def ptr(self, filter_regex=""):
         output = self.query("PTR")
         records = [m[0] for m in self.records(
-            "^{}.*?\s+domain\s+name\s+pointer\s+(.+?)\.?$".format(self.host),
+            "^.*?\s+domain\s+name\s+pointer\s+(.+?)\.?$",
             output,
             filter_regex
         )]
@@ -97,13 +170,18 @@ class Domain(object):
         return ret
 
     def query(self, record):
-        output = subprocess.check_output([
-            "host",
-            #"-t {}".format(record),
-            "-t",
-            record,
-            self.host
-        ])
+        output = ""
+        try:
+            output = subprocess.check_output([
+                "host",
+                #"-t {}".format(record),
+                "-t",
+                record,
+                self.host
+            ])
+        except subprocess.CalledProcessError:
+            pass
+
         return output
 
 #     def records(self, record):

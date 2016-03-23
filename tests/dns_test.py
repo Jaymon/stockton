@@ -88,7 +88,7 @@ class DomainTest(TestCase):
         d = Domain("123.456.789.100")
         def monkey_query(self, *args, **kwargs):
             return "\n".join([
-                "{}.in-addr.arpa domain name pointer {}.".format(d.host, "example.com"),
+                "203.68.131.104.in-addr.arpa domain name pointer {}.".format("example.com"),
                 ""
             ])
         testdata.patch(d, query=monkey_query)
@@ -117,4 +117,8 @@ class DomainTest(TestCase):
         d = MonkeyDomain("example.com")
         vs = d.rdns()
         self.assertEqual("123.456.789.100", vs[0])
+
+
+# class MailserverTest(TestCase):
+#     def test_
 

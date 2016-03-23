@@ -16,10 +16,6 @@ class Stockton(Captain):
         super(Stockton, self).__init__("")
 
     def run(self, arg_str='', **process_kwargs):
-#         pwd = os.path.dirname(__file__)
-#         cmd_env = os.environ.copy()
-#         cmd_env['PYTHONPATH'] = pwd + os.pathsep + cmd_env.get('PYTHONPATH', '')
-#         c = Captain(self.path, cwd=self.cwd)
         lines = ""
         for line in super(Stockton, self).run(arg_str, **process_kwargs):
             self.flush(line)
@@ -30,9 +26,6 @@ class Stockton(Captain):
 def setUpModule():
     if os.environ["USER"] != "root":
         raise RuntimeError("User is not root, re-run this test with sudo")
-
-# def tearDownModule():
-#     pass
 
 
 class PrepareTest(TestCase):
@@ -60,9 +53,9 @@ class ConfigureTest(TestCase):
         s = Stockton("configure-recv")
 
         with self.assertRaises(RuntimeError):
-            r = s.run("--domain=example.com --mailserver=mail.example.com")
+            r = s.run("example.com --mailserver=mail.example.com")
 
-        arg_str = "--domain=example.com --mailserver=mail.example.com --proxy-email=final@destination.com"
+        arg_str = "example.com --mailserver=mail.example.com --proxy-email=final@destination.com"
         r = s.run(arg_str)
 
         # make some changes to main
@@ -90,7 +83,7 @@ class ConfigureTest(TestCase):
         cli.package("cyrus-clients-2.4") # for smtptest
 
         s = Stockton("configure-send")
-        arg_str = "--domain=example.com --mailserver=mail.example.com --smtp-password=1234 --state=CA --city=\"San Francisco\""
+        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234 --state=CA --city=\"San Francisco\""
         r = s.run(arg_str)
 
         r = cli.run(
@@ -122,7 +115,7 @@ class ConfigureTest(TestCase):
     def test_dkim(self):
         #self.test_recv() # we need a configured for receive postfix
         s = Stockton("configure-recv")
-        r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@destination.com")
+        r = s.run("example.com --mailserver=mail.example.com --proxy-email=final@destination.com")
 
 
         cli.purge("opendkim", "opendkim-tools")
@@ -160,15 +153,15 @@ class DomainTest(TestCase):
 
     def test_delete_domain(self):
         s = Stockton("configure-recv")
-        r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
+        r = s.run("example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
         s = Stockton("configure_dkim")
         r = s.run()
 
         s = Stockton("add-domain")
-        r = s.run("--domain=todelete.com --proxy-email=todelete@dest.com")
+        r = s.run("todelete.com --proxy-email=todelete@dest.com")
 
         s = Stockton("delete-domain")
-        r = s.run("--domain=todelete.com")
+        r = s.run("todelete.com")
 
         # verify
         af = Filepath("/etc/postfix/virtual/addresses/todelete.com")
@@ -185,9 +178,33 @@ class DomainTest(TestCase):
         trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
         self.assertFalse(trustedhosts_f.contains("todelete.com"))
 
-    def test_add_domain_proxy_domains(self):
+    def test_add_domain_proxy_file_smtp(self):
         s = Stockton("configure-recv")
-        r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
+        r = s.run("--mailserver=mail.example.com")
+        s = Stockton("configure-send")
+        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234 --state=CA --city=\"San Francisco\""
+        r = s.run(arg_str)
+
+        proxy_addresses = testdata.create_file("foo.com", [
+            "one@foo.com                foo@dest1.com",
+            "two@foo.com                foo@dest2.com",
+            "three@foo.com              foo@dest3.com",
+            "",
+        ])
+
+        s = Stockton("add-domain")
+        r = s.run("foo.com --proxy-file={} --smtp-password=12345".format(proxy_addresses))
+
+        cli.package("cyrus-clients-2.4") # for smtptest
+        r = cli.run(
+            "echo QUIT | smtptest -a smtp@foo.com -w 12345 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
+            capture_output=True
+        )
+        self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
+
+    def test_add_domain_proxy_file(self):
+        s = Stockton("configure-recv")
+        r = s.run("--mailserver=mail.example.com")
 
         proxy_domains = testdata.create_files({
             "foo.com": "\n".join([
@@ -204,46 +221,37 @@ class DomainTest(TestCase):
             ]),
         })
 
-        s = Stockton("add-domain")
-        r = s.run("--proxy-domains={}".format(proxy_domains))
+        for f in proxy_domains:
+            s = Stockton("add-domain")
+            r = s.run("{} --proxy-file={}".format(f.name, f))
 
-        proxy_domains2 = testdata.create_dir()
         contents = "\n".join([
             "@foo.com                   foo@dest.com",
             "",
         ])
-        f = testdata.create_files({
-            "foo.com": contents,
-        }, proxy_domains2)
+        f = testdata.create_file("foo.com", contents)
 
-        r = s.run("--proxy-domains={}".format(proxy_domains2))
+        r = s.run("{} --proxy-file={}".format(f.name, f))
         foo = Filepath("/etc/postfix/virtual/addresses/foo.com")
         self.assertEqual(contents, foo.contents())
 
-        # ;et's check structure because I was having a lot of problems with getting
+        # Let's check structure because I was having a lot of problems with getting
         # the structure...
 
-        # domains file should have 3 domains in it
+        # domains file should have 2 domains in it
         domains_f = Filepath("/etc/postfix/virtual/domains")
-        self.assertEqual(3, domains_f.lc())
+        self.assertEqual(2, domains_f.lc())
         self.assertTrue(domains_f.contains("^foo\.com$"))
 
-        val = "\n".join([
-            "hash:/etc/postfix/virtual/addresses/bar.com,",
-            "  hash:/etc/postfix/virtual/addresses/example.com,",
-            "  hash:/etc/postfix/virtual/addresses/foo.com",
-        ])
         m = Main(prototype_path=Main.dest_path)
-        # we can't guarrantee foo, example, bar order so we match one line at a time
-        self.assertTrue(re.search("^hash:[/a-z]+?(bar|example|foo)\.com,", m["virtual_alias_maps"].val, re.M))
-        self.assertTrue(re.search("^\s+hash:[/a-z]+?(bar|example|foo)\.com,", m["virtual_alias_maps"].val, re.M))
-        self.assertTrue(re.search("^\s+hash:[/a-z]+?(bar|example|foo)\.com$", m["virtual_alias_maps"].val, re.M))
-        #self.assertEqual(val, m["virtual_alias_maps"].val)
+        # we can't guarrantee foo, bar order so we match one line at a time
+        self.assertTrue(re.search("^hash:[/a-z]+?(bar|foo)\.com,", m["virtual_alias_maps"].val, re.M))
+        self.assertTrue(re.search("^\s+hash:[/a-z]+?(bar|foo)\.com$", m["virtual_alias_maps"].val, re.M))
 
     def test_add_domain_domain(self):
         """pass in the domain and the proxy"""
         s = Stockton("configure-recv")
-        r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
+        r = s.run("--mailserver=mail.example.com")
         s = Stockton("configure-dkim")
         r = s.run()
 
@@ -252,11 +260,11 @@ class DomainTest(TestCase):
         twof = Filepath("/etc/postfix/virtual/addresses/two.com")
         df = Filepath("/etc/postfix/virtual/domains")
 
-        r = s.run("--domain=one.com --proxy-email=one@dest.com")
+        r = s.run("one.com --proxy-email=one@dest.com")
         self.assertTrue(onef.contains("^@one.com"))
         self.assertTrue(df.contains("one.com"))
 
-        r = s.run("--domain=two.com --proxy-email=two@dest.com")
+        r = s.run("two.com --proxy-email=two@dest.com")
         self.assertTrue(onef.contains("^@one.com"))
         self.assertTrue(df.contains("one.com"))
         self.assertTrue(twof.contains("two@dest.com"))
@@ -267,9 +275,9 @@ class DomainTest(TestCase):
         signingtable_f = Filepath(opendkim_d, "SigningTable")
         trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
 
-        self.assertEqual(3, keytable_f.lc())
-        self.assertEqual(3, signingtable_f.lc())
-        self.assertTrue("*.example.com" in trustedhosts_f.lines())
+        self.assertEqual(2, keytable_f.lc())
+        self.assertEqual(2, signingtable_f.lc())
+        #self.assertTrue("*.example.com" in trustedhosts_f.lines())
         self.assertTrue("*.one.com" in trustedhosts_f.lines())
         self.assertTrue("*.two.com" in trustedhosts_f.lines())
 
@@ -277,11 +285,11 @@ class DomainTest(TestCase):
         s = Stockton("configure-recv")
         r = s.run("--mailserver=mail.example.com")
         s = Stockton("configure-send")
-        arg_str = "--domain=example.com --mailserver=mail.example.com --smtp-password=1234 --state=CA --city=\"San Francisco\""
+        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234 --state=CA --city=\"San Francisco\""
         r = s.run(arg_str)
 
         s = Stockton("add-domain")
-        r = s.run("--domain=one.com --proxy-email=one@dest.com --smtp-password=1234")
+        r = s.run("one.com --proxy-email=one@dest.com --smtp-password=1234")
 
         cli.package("cyrus-clients-2.4") # for smtptest
         r = cli.run(
@@ -291,15 +299,13 @@ class DomainTest(TestCase):
         self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
 
 
-
-
 class LockdownTest(TestCase):
     def setUp(self):
         cli.running("postfix")
 
     def test_run(self):
         s = Stockton("configure-recv")
-        r = s.run("--domain=example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
+        r = s.run("example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
 
         s = Stockton("lockdown")
         r = s.run("--mailserver=mail.example.com")
