@@ -12,7 +12,8 @@ from .path import Filepath
 
 
 def ip():
-    external_ip = cached_run("wget -qO- http://ifconfig.me/ip", ttl=10800)
+    #external_ip = cached_run("wget -qO- http://ifconfig.me/ip", ttl=10800)
+    external_ip = cached_run("wget -qO- http://icanhazip.com", ttl=10800)
     external_ip = external_ip.strip()
     m = re.match("^(?:\d+\.){3}\d+$", external_ip)
     return external_ip if m else ""

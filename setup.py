@@ -4,7 +4,6 @@
 
 import sys
 from setuptools import setup, find_packages
-import ast
 
 import stockton as module
 name = module.__name__
@@ -18,7 +17,7 @@ setup(
     author_email='jay@marcyes.com',
     url='http://github.com/jaymon/{}'.format(name),
     packages=find_packages(),
-    #license="MIT",
+    license="MIT",
     #install_requires=[''],
     tests_require=['testdata'],
     classifiers=[ # https://pypi.python.org/pypi?:action=list_classifiers

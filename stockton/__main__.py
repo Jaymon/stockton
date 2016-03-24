@@ -329,7 +329,7 @@ def main_delete_domain(domain):
     cli.opendkim_reload()
 
 
-@arg('domain', default="", help='The email domain (eg, example.com)')
+@arg('domain', help='The email domain (eg, example.com)')
 @arg('--proxy-file', default="", help='The file containing domain addresses to proxy emails')
 #@arg('--proxy-domains', default="", help='The directory containing domain configuration files')
 @arg('--proxy-email', default="", help='The final destination email address')
@@ -353,14 +353,12 @@ def main_add_domain(domain, proxy_file, proxy_email, smtp_username, smtp_passwor
     main_check_domain(domain)
 
 
-def main_dkim_genkeys():
+@arg('domain', help='The email domain (eg, example.com)')
+def main_gen_domain_key(domain):
+    """re-generate the DKIM key for domain"""
     dk = DKIM()
-    p = Postfix()
-    domains_f = Filepath("/etc/postfix/virtual/domains")
-    for domain in p.domains:
-        dk.add_domain(domain, gen_key=True)
-        main_check_domain(domain, ["dkim"])
-
+    dk.add_domain(domain, gen_key=True)
+    main_check_domain(domain, ["dkim"])
     p.restart()
     dk.restart()
 
