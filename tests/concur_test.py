@@ -75,6 +75,23 @@ class SpaceTest(TestCase):
 
 
 class PostfixTest(TestCase):
+    def test_main_update(self):
+        contents = "\n".join([
+            "foo = bar",
+            "che = baz",
+        ])
+        path = testdata.create_file("main.cf", contents)
+        c = postfix.Main(dest_path=path, prototype_path=path)
+
+        c.update(
+            ("foo", "rab")
+        )
+        c.save()
+
+        c2 = postfix.Main(dest_path=path, prototype_path=path)
+        self.assertEqual("rab", c2["foo"].val)
+        self.assertEqual("baz", c2["che"].val)
+
     def test_main_oneline(self):
         contents = "\n".join([
             "virtual_alias_map = hash:/some/path/one",

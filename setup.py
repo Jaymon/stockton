@@ -18,7 +18,7 @@ setup(
     url='http://github.com/jaymon/{}'.format(name),
     packages=find_packages(),
     license="MIT",
-    #install_requires=[''],
+    install_requires=['geoip2'],
     tests_require=['testdata'],
     classifiers=[ # https://pypi.python.org/pypi?:action=list_classifiers
         'Development Status :: 4 - Beta',

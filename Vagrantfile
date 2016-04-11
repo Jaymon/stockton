@@ -26,6 +26,25 @@ Vagrant.configure("2") do |config|
     chef.cookbooks_path = ::File.join(ENV["FO_OPS_DIR"], "chef", "cookbooks")
     #chef.roles_path = "../my-recipes/roles"
     #chef.data_bags_path = "../my-recipes/data_bags"
+
+
+#     chef.add_recipe "locations"
+#     chef.json = {
+# 
+#       "locations" => {
+#         "users" => {
+#           "vagrant" => {
+#             "home_index" => {
+#               "src" => "/vagrant",
+#               "dest" => "/tmp/vagrant/locations/test",
+#               "mode" => "0777"
+#             }
+#           },
+#         },
+#       },
+# 
+#     }
+
     chef.add_recipe "package::update"
     chef.add_recipe "package"
     chef.add_recipe "pip"
@@ -48,6 +67,7 @@ Vagrant.configure("2") do |config|
           "testdata", #"git+https://github.com/Jaymon/testdata#egg=testdata",
           "pyt", #"git+https://github.com/Jaymon/pyt#egg=pyt",
           "git+https://github.com/firstopinion/captain#egg=captain==0.4.1",
+          "geoip2",
         ],
         :upgrade => [],
       },
@@ -64,7 +84,7 @@ Vagrant.configure("2") do |config|
           }
         }
       },
-    }
+      }
 
   end
 

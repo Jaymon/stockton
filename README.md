@@ -23,9 +23,7 @@ Then, after installation, just run:
     $ sudo stockton install super-cool-domain.com \
     > --proxy-email=joecool@gmail.com \
     > --mailserver=mail.super-cool-domain.com \
-    > --smtp_password="..." \
-    > --state=CA \
-    > --city="San Francisco"
+    > --smtp_password="..."
 
 That will setup Stockton and report what dns changes you will need to make to `super-cool-domain.com` in order to get everything working correctly. Stockton will automatically setup modern email things like [DKIM](http://www.dkim.org/), [SPF](http://www.openspf.org/), and [SRS](http://www.openspf.org/SRS) so your emails won't get lost in spam folders everwhere.
 
@@ -66,7 +64,7 @@ Stockton is designed for my specific use case, multiple domains, all forwarding 
 
 ### Why the name Stockton?
 
-I'm a fan of 1990's Utah Jazz references, so here are some animated gifs...
+I'm a fan of 1990's Utah Jazz references, here are some animated gifs to illustrate Stockton assisting the Mailman...
 
 ![](https://github.com/Jaymon/stockton/blob/master/images/stockton-to-malone-3.gif)
 

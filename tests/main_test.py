@@ -1,4 +1,4 @@
-from unittest import TestCase
+from unittest import TestCase as BaseTestCase
 import os
 import re
 
@@ -8,6 +8,7 @@ from captain.client import Captain
 from stockton import cli
 from stockton.path import Filepath, Dirpath
 from stockton.concur.formats.postfix import Main, SMTPd, Master
+from stockton.interface import Postfix
 
 
 class Stockton(Captain):
@@ -28,12 +29,28 @@ def setUpModule():
         raise RuntimeError("User is not root, re-run this test with sudo")
 
 
+class TestCase(BaseTestCase):
+    def setUp(self):
+        f = Filepath(Main.dest_path)
+        #self.assertTrue(f.exists())
+        if not f.exists():
+            s = Stockton("prepare")
+            r = s.run("")
+
+    def setup_domain(self, domain):
+        s = Stockton("configure-recv")
+        r = s.run("--mailserver=mail.example.com")
+
+        s = Stockton("add-domain")
+        r = s.run("example.com --proxy-email=dest@dest.com")
+
+
 class PrepareTest(TestCase):
     def setUp(self):
         cli.purge("postfix")
 
     def test_run(self):
-        d = Dirpath("etc", "postfix")
+        d = Dirpath("/etc/postfix")
         self.assertFalse(d.exists())
 
         s = Stockton("prepare")
@@ -45,27 +62,22 @@ class PrepareTest(TestCase):
 
 
 class ConfigureTest(TestCase):
-    def setUp(self):
-        f = Filepath(Main.dest_path)
-        self.assertTrue(f.exists())
-
     def test_recv(self):
         s = Stockton("configure-recv")
+        p = Postfix()
 
-        with self.assertRaises(RuntimeError):
-            r = s.run("example.com --mailserver=mail.example.com")
+        arg_str = "--mailserver=mail.example.com"
 
-        arg_str = "example.com --mailserver=mail.example.com --proxy-email=final@destination.com"
         r = s.run(arg_str)
 
         # make some changes to main
-        m = Main(prototype_path=Main.dest_path)
+        m = p.main()
         m.update(
             ("foobar", "1234")
         )
         m.save()
 
-        f = Filepath(Main.dest_path)
+        f = p.main_f
         self.assertTrue(f.contains("foobar"))
 
         # re-run
@@ -76,14 +88,40 @@ class ConfigureTest(TestCase):
 
         cli.running("postfix")
 
-    def test_send(self):
+    def test_recv_update(self):
+        s = Stockton("configure-recv")
+        p = Postfix()
+        arg_str = "--mailserver=mail.example.com"
 
+        r = s.run(arg_str)
+        p.main_f.backup(suffix=".foobar.bak", ignore_existing=True)
+
+        # make some changes to main
+        m = p.main_live
+        m.update(
+            ("mydomain", "1234.com")
+        )
+        m.save()
+        f = p.main_f
+        self.assertTrue(f.contains("mydomain"))
+
+        # now rerun, but update
+        arg_str += " --update"
+        r = s.run(arg_str)
+        f = p.main_f
+        self.assertTrue(f.contains("mydomain"))
+        for mbak in p.main_backups():
+            mbak_f = Filepath(mbak.dest_path)
+            self.assertFalse(mbak_f.contains("mydomain"))
+
+    def test_send(self):
+        self.setup_domain("example.com")
         cli.purge("sasl2-bin", "libsasl2-modules")
 
         cli.package("cyrus-clients-2.4") # for smtptest
 
         s = Stockton("configure-send")
-        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234 --state=CA --city=\"San Francisco\""
+        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234"
         r = s.run(arg_str)
 
         r = cli.run(
@@ -114,9 +152,7 @@ class ConfigureTest(TestCase):
 
     def test_dkim(self):
         #self.test_recv() # we need a configured for receive postfix
-        s = Stockton("configure-recv")
-        r = s.run("example.com --mailserver=mail.example.com --proxy-email=final@destination.com")
-
+        self.setup_domain("example.com")
 
         cli.purge("opendkim", "opendkim-tools")
         opendkim_d = Dirpath("/etc/opendkim")
@@ -147,13 +183,8 @@ class ConfigureTest(TestCase):
 
 
 class DomainTest(TestCase):
-    def setUp(self):
-        f = Filepath(Main.dest_path)
-        self.assertTrue(f.exists())
-
     def test_delete_domain(self):
-        s = Stockton("configure-recv")
-        r = s.run("example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
+        self.setup_domain("example.com")
         s = Stockton("configure_dkim")
         r = s.run()
 
@@ -179,10 +210,9 @@ class DomainTest(TestCase):
         self.assertFalse(trustedhosts_f.contains("todelete.com"))
 
     def test_add_domain_proxy_file_smtp(self):
-        s = Stockton("configure-recv")
-        r = s.run("--mailserver=mail.example.com")
+        self.setup_domain("example.com")
         s = Stockton("configure-send")
-        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234 --state=CA --city=\"San Francisco\""
+        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234"
         r = s.run(arg_str)
 
         proxy_addresses = testdata.create_file("foo.com", [
@@ -248,6 +278,61 @@ class DomainTest(TestCase):
         self.assertTrue(re.search("^hash:[/a-z]+?(bar|foo)\.com,", m["virtual_alias_maps"].val, re.M))
         self.assertTrue(re.search("^\s+hash:[/a-z]+?(bar|foo)\.com$", m["virtual_alias_maps"].val, re.M))
 
+    def test_add_domains(self):
+        s = Stockton("configure-recv")
+        r = s.run("--mailserver=mail.example.com")
+
+        s = Stockton("add-domains")
+
+        # a file with different domains
+        proxy_domains = testdata.create_files({
+            "foo2.com.txt": [
+                "one@foo3.com                foo@dest.com",
+                "one@bar3.com                bar@dest.com",
+                "",
+            ],
+        })
+        with self.assertRaises(RuntimeError):
+            r = s.run("--proxy-domains={}".format(proxy_domains))
+
+        # 2 files with the same domain
+        proxy_domains = testdata.create_files({
+            "foo2.com.txt": [
+                "one@foo2.com                foo@dest.com",
+                "",
+            ],
+            "bar2.com": [
+                "one@foo2.com                bar@dest.com",
+                "",
+            ],
+        })
+        with self.assertRaises(RuntimeError):
+            r = s.run("--proxy-domains={}".format(proxy_domains))
+
+        proxy_domains = testdata.create_files({
+            "foo.com.txt": [
+                "one@foo.com                foo@dest.com",
+                "two@foo.com                foo@dest.com",
+                "three@foo.com              foo@dest.com",
+                "",
+            ],
+            "bar.com": [
+                "one@bar.com                bar@dest.com",
+                "two@bar.com                bar@dest.com",
+                "three@bar.com              bar@dest.com",
+                "",
+            ],
+            "che.org.txt": [
+                "@che.org                   che@dest.com",
+                "",
+            ],
+        })
+
+        r = s.run("--proxy-domains={} --smtp-password=1234".format(proxy_domains))
+        self.assertTrue("Adding domain foo.com" in r)
+        self.assertTrue("Adding domain bar.com" in r)
+        self.assertTrue("Adding domain che.org" in r)
+
     def test_add_domain_domain(self):
         """pass in the domain and the proxy"""
         s = Stockton("configure-recv")
@@ -282,10 +367,9 @@ class DomainTest(TestCase):
         self.assertTrue("*.two.com" in trustedhosts_f.lines())
 
     def test_add_domain_smtp(self):
-        s = Stockton("configure-recv")
-        r = s.run("--mailserver=mail.example.com")
+        self.setup_domain("example.com")
         s = Stockton("configure-send")
-        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234 --state=CA --city=\"San Francisco\""
+        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234"
         r = s.run(arg_str)
 
         s = Stockton("add-domain")
@@ -304,8 +388,7 @@ class LockdownTest(TestCase):
         cli.running("postfix")
 
     def test_run(self):
-        s = Stockton("configure-recv")
-        r = s.run("example.com --mailserver=mail.example.com --proxy-email=final@dest.com")
+        self.setup_domain("example.com")
 
         s = Stockton("lockdown")
         r = s.run("--mailserver=mail.example.com")

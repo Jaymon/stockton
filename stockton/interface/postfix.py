@@ -6,6 +6,73 @@ from .. import cli
 from ..path import Filepath, Dirpath
 from ..concur.formats.postfix import Main, SMTPd, Master
 from ..concur.formats.generic import SpaceConfig
+from ..geo import IP
+
+
+class Cert(object):
+
+    @property
+    def key(self):
+        return Filepath(self.certs_d, "{}.key".format(self.domain))
+
+    @property
+    def crt(self):
+        return Filepath(self.certs_d, "{}.crt".format(self.domain))
+
+    @property
+    def pem(self):
+        return Filepath(self.certs_d, "{}.pem".format(self.domain))
+
+    def __init__(self, domain):
+        self.domain = domain
+        self.certs_d = Dirpath("/etc/postfix/certs")
+
+    def assure(self):
+        if not self.exists():
+            self.create()
+
+    def exists(self):
+        return self.pem.exists()
+
+    def create(self):
+        """write out a certificate for the domain"""
+        self.certs_d.create()
+        domain = self.domain
+
+        certs_key = self.key
+        certs_crt = self.crt
+        certs_pem = self.pem
+
+        ip = IP()
+        country = ip.country
+        state = ip.state
+        city = ip.city
+
+        cli.package("openssl", only_upgrade=True)
+
+        # http://superuser.com/questions/226192/openssl-without-prompt
+        cli.run(" ".join([
+            "openssl req",
+            "-new",
+            "-newkey rsa:4096",
+            # openssl 1.0.2+ only, comment out above line and uncomment next 2
+            #"-newkey ec",
+            #"-pkeyopt ec_paramgen_curve:prime256v1",
+            "-days 3650",
+            "-nodes",
+            "-x509",
+            "-subj \"/C={}/ST={}/L={}/O={}/CN={}\"".format(
+                country,
+                state,
+                city,
+                domain,
+                domain
+            ),
+            "-keyout {}".format(certs_key),
+            "-out {}".format(certs_crt)
+        ]))
+        cli.run("cat {} {} > {}".format(certs_crt, certs_key, certs_pem))
+
 
 class Postfix(object):
 
@@ -17,6 +84,16 @@ class Postfix(object):
     @property
     def main_f(self):
         return Filepath(Main.dest_path)
+
+    @property
+    def main_live(self):
+        """return the main config prototyped with the live main.cf"""
+        return self.main()
+
+    @property
+    def main_new(self):
+        """return the main config with no prototype, so brand spanking new"""
+        return self.main("")
 
     @property
     def master_f(self):
@@ -123,6 +200,12 @@ class Postfix(object):
             m = Main(prototype_path=Main.dest_path)
 
         return m
+
+    def main_backups(self):
+        """return any backups of the Postfix main.cf file"""
+        for mbak_f in self.config_d.files("main.*?\.bak$"):
+            mbak = Main(dest_path=mbak_f.path, prototype_path=mbak_f.path)
+            yield mbak
 
     def restart(self):
         try:

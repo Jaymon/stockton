@@ -15,7 +15,7 @@ from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.concur.formats.generic import SpaceConfig
 from stockton.path import Dirpath, Filepath, Sentinal
 
-from stockton.interface import SMTP, Postfix, DKIM
+from stockton.interface import SMTP, Postfix, PostfixCert, DKIM
 
 
 def main_prepare():
@@ -31,32 +31,70 @@ def main_prepare():
     cli.package("postfix")
 
 
-@arg('domain', default="", help='The email domain (eg, example.com)')
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
-@arg('--proxy-file', default="", help='The file containing domain addresses to proxy emails')
-@arg('--proxy-email', default="", help='The final destination email address')
-def main_configure_recv(domain, mailserver, proxy_file, proxy_email):
+@arg('--update', action="store_true", help='Update settings instead of replace them')
+def main_configure_recv(mailserver, update):
+    """Configure Postfix mailserver to receive email
+
+    NOTE -- this doesn't actually configure any domains, in order to actually receive
+    emails you should use add-domain(s)
+    """
     # http://www.postfix.org/VIRTUAL_README.html
 
     echo.h2("Configuring Postfix to receive emails")
 
     p = Postfix()
-    p.reset(really_delete_files=True)
 
-    m = p.main("")
-    m.update(
+    if not update:
+        p.reset(really_delete_files=True)
+
+    cert = PostfixCert(mailserver)
+    cert.assure()
+
+    settings = [
         ("alias_maps", "hash:/etc/aliases"), # http://unix.stackexchange.com/a/244200/118750
         ("myhostname", mailserver),
-        #("mydomain", domain),
-        #("myorigin", domain),
-    )
-    m.save()
+    ]
 
-    if domain:
-        p.add_domain(domain, proxy_file, proxy_email)
+    # Smtpd means mails you receive from outside, smtp covers mails you send to other servers
+    # http://blog.snapdragon.cc/2013/07/07/setting-postfix-to-encrypt-all-traffic-when-talking-to-other-mailservers/
+
+    # Incoming
+    settings.extend([
+        ("smtpd_tls_cert_file", cert.crt),
+        ("smtpd_tls_key_file", cert.key),
+        ("smtpd_use_tls", "yes"),
+        ("smtpd_tls_auth_only", "yes"),
+        ("smtpd_tls_security_level", "may"),
+        ("smtpd_tls_loglevel", 1),
+        ("smtpd_tls_mandatory_ciphers", "high"),
+        ("smtpd_tls_mandatory_protocols", "!SSLv2, !SSLv3"),
+        ("smtpd_tls_session_cache_database", "btree:${data_directory}/smtpd_scache"),
+    ])
+
+    # Outgoing
+    settings.extend([
+        ("smtp_tls_cert_file", cert.crt),
+        ("smtp_tls_key_file", cert.key),
+        ("smtp_use_tls", "yes"),
+        ("smtp_tls_security_level", "may"),
+        ("smtp_tls_loglevel", 1),
+        ("smtp_tls_mandatory_ciphers", "high"),
+        ("smtp_tls_mandatory_protocols", "!SSLv2, !SSLv3"),
+        ("smtp_tls_session_cache_database", "btree:${data_directory}/smtp_scache"),
+    ])
+
+    m = p.main_live if update else p.main_new
+    m.update(*settings)
+    m.save()
 
     # make backup of master.cf
     master_bak = p.master_f.backup(ignore_existing=False)
+
+    if update:
+        for mbak in p.main_backups():
+            mbak.update(*settings)
+            mbak.save()
 
     p.restart()
 
@@ -65,10 +103,7 @@ def main_configure_recv(domain, mailserver, proxy_file, proxy_email):
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
 @arg('--smtp-username', default="smtp", help='smtp username for sending emails')
 @arg('--smtp-password', help='smtp password for sending emails')
-@arg('--country', default="US", help='country for ssl certificate')
-@arg('--state', help='state for ssl certificate')
-@arg('--city', help='city for ssl certificate')
-def main_configure_send(domain, mailserver, smtp_username, smtp_password, country, state, city):
+def main_configure_send(domain, mailserver, smtp_username, smtp_password):
 
     # https://help.ubuntu.com/lts/serverguide/postfix.html#postfix-sasl
     # http://www.postfix.org/SASL_README.html
@@ -89,36 +124,39 @@ def main_configure_send(domain, mailserver, smtp_username, smtp_password, countr
     )
     s.save()
 
-    certs_d = Dirpath("/etc/postfix/certs")
-    certs_d.create()
-    certs_key = Filepath(certs_d, "{}.key".format(mailserver))
-    certs_crt = Filepath(certs_d, "{}.crt".format(mailserver))
-    certs_pem = Filepath(certs_d, "{}.pem".format(mailserver))
+    cert = PostfixCert(mailserver)
+    cert.assure()
 
-    cli.package("openssl", only_upgrade=True)
-
-    # http://superuser.com/questions/226192/openssl-without-prompt
-    cli.run(" ".join([
-        "openssl req",
-        "-new",
-        "-newkey rsa:4096",
-        # openssl 1.0.2+ only, comment out above line and uncomment next 2
-        #"-newkey ec",
-        #"-pkeyopt ec_paramgen_curve:prime256v1",
-        "-days 3650",
-        "-nodes",
-        "-x509",
-        "-subj \"/C={}/ST={}/L={}/O={}/CN={}\"".format(
-            country,
-            state,
-            city,
-            mailserver,
-            mailserver
-        ),
-        "-keyout {}".format(certs_key),
-        "-out {}".format(certs_crt)
-    ]))
-    cli.run("cat {} {} > {}".format(certs_crt, certs_key, certs_pem))
+#     certs_d = Dirpath("/etc/postfix/certs")
+#     certs_d.create()
+#     certs_key = Filepath(certs_d, "{}.key".format(mailserver))
+#     certs_crt = Filepath(certs_d, "{}.crt".format(mailserver))
+#     certs_pem = Filepath(certs_d, "{}.pem".format(mailserver))
+# 
+#     cli.package("openssl", only_upgrade=True)
+# 
+#     # http://superuser.com/questions/226192/openssl-without-prompt
+#     cli.run(" ".join([
+#         "openssl req",
+#         "-new",
+#         "-newkey rsa:4096",
+#         # openssl 1.0.2+ only, comment out above line and uncomment next 2
+#         #"-newkey ec",
+#         #"-pkeyopt ec_paramgen_curve:prime256v1",
+#         "-days 3650",
+#         "-nodes",
+#         "-x509",
+#         "-subj \"/C={}/ST={}/L={}/O={}/CN={}\"".format(
+#             country,
+#             state,
+#             city,
+#             mailserver,
+#             mailserver
+#         ),
+#         "-keyout {}".format(certs_key),
+#         "-out {}".format(certs_crt)
+#     ]))
+#     cli.run("cat {} {} > {}".format(certs_crt, certs_key, certs_pem))
 
     # make backup of master.cf if it doesn't already exist
     master_f = Filepath(Master.dest_path)
@@ -134,7 +172,7 @@ def main_configure_send(domain, mailserver, smtp_username, smtp_password, countr
     m["submission"].update(
         ("syslog_name", "postfix/submission"),
         ("smtpd_tls_security_level", "may"),
-        ("smtpd_tls_cert_file", certs_pem.path),
+        ("smtpd_tls_cert_file", cert.pem.path),
         ("smtpd_sasl_auth_enable", "yes"),
         ("smtpd_reject_unlisted_recipient", "no"),
         ("smtpd_relay_restrictions", "permit_sasl_authenticated,reject"),
@@ -292,8 +330,6 @@ def main_delete_domain(domain):
 
     # TODO -- most of this should be moved to postfix.py and dkim.py files
 
-    m = Main(prototype_path=Main.dest_path)
-
     # remove postfix settings
     virtual_d = Dirpath("/etc/postfix/virtual")
 
@@ -329,6 +365,57 @@ def main_delete_domain(domain):
     cli.opendkim_reload()
 
 
+@arg(
+    '--proxy-domains',
+    type=Dirpath,
+    help='Directory containing domain configuration files'
+)
+@arg('--smtp-username', default="smtp", help='smtp username for sending emails')
+@arg(
+    '--smtp-password',
+    default="",
+    help='smtp password for sending emails, will be used for each domain in proxy-domains'
+)
+def main_add_domains(proxy_domains, smtp_username, smtp_password):
+    """add-domains
+
+    Given a directory containing domain alias configuration files, corresponding to
+    the format specified in
+
+    http://www.postfix.org/virtual.5.html
+
+    Add each of the domains to Postfix, if smtp-password is given, then also set
+    up the virtual domain to be able to send email.
+    """
+    domains = {}
+    for proxy_f in proxy_domains.files():
+        domain_check = set()
+        for line in proxy_f:
+            m = re.match("^(\S*@\S+)", line)
+            if m:
+                bits = m.group(1).split("@", 1)
+                if len(bits) == 2:
+                    domain_check.add(bits[1])
+
+        if len(domain_check) == 1:
+            domain = domain_check.pop()
+            if domain in domains:
+                raise ValueError("proxy_file {} contains domain {} also seen in {}".format(
+                    proxy_f,
+                    domain,
+                    domains[domain],
+                ))
+
+            domains[domain] = proxy_f
+
+        else:
+            raise ValueError("Found multiple domains in proxy_file {}".format(proxy_f))
+
+    for domain, proxy_file in domains.items():
+        echo.h2("Adding domain {} from file {}", domain, proxy_file)
+        main_add_domain(domain, proxy_file, "", smtp_username, smtp_password)
+
+
 @arg('domain', help='The email domain (eg, example.com)')
 @arg('--proxy-file', default="", help='The file containing domain addresses to proxy emails')
 #@arg('--proxy-domains', default="", help='The directory containing domain configuration files')
@@ -336,7 +423,10 @@ def main_delete_domain(domain):
 @arg('--smtp-username', default="smtp", help='smtp username for sending emails')
 @arg('--smtp-password', default="", help='smtp password for sending emails')
 def main_add_domain(domain, proxy_file, proxy_email, smtp_username, smtp_password):
+    """add-domain
 
+    add one virtual domain to postfix
+    """
     p = Postfix()
     p.add_domain(domain, proxy_file, proxy_email)
 
@@ -508,7 +598,7 @@ def main_check_domain(domain, records=None):
 
 
 @args(main_configure_recv, main_configure_send)
-def main_install(domain, mailserver, smtp_username, smtp_password, country, state, city, proxy_domains, proxy_email):
+def main_install(domain, mailserver, smtp_username, smtp_password, proxy_domains, proxy_email):
 
     main_prepare()
     main_configure_recv(domain, mailserver, proxy_domains, proxy_email)

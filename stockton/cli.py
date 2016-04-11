@@ -4,9 +4,7 @@ import subprocess
 import re
 import hashlib
 
-
 from captain import echo
-
 
 from .path import Filepath
 

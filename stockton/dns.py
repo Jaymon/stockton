@@ -6,8 +6,13 @@ http://stackoverflow.com/questions/19322962/how-can-i-list-all-dns-records
 """
 import re
 import subprocess
+import tempfile
+import urllib
+import gzip
+import os
 
 from .interface.dkim import DKIM
+from . import cli
 
 
 class Record(object):

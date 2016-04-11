@@ -1,8 +1,9 @@
-from unittest import TestCase
+from unittest import TestCase, SkipTest
 
 import testdata
 
 from stockton.dns import Domain
+from stockton.path import Filepath, Dirpath
 
 
 class DomainTest(TestCase):
