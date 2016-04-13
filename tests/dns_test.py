@@ -2,6 +2,7 @@ from unittest import TestCase, SkipTest
 
 import testdata
 
+from stockton import dns
 from stockton.dns import Domain
 from stockton.path import Filepath, Dirpath
 
@@ -119,6 +120,89 @@ class DomainTest(TestCase):
         vs = d.rdns()
         self.assertEqual("123.456.789.100", vs[0])
 
+#     def test_domainkey(self):
+#         import sys
+#         import os
+#         sys.path.insert(0, os.curdir)
+# 
+#         monkey_text_valid = "".join([
+#             'v=DKIM1; k=rsa; ',
+#             'p=MIIBIjANBgkqhkiG9wcheQEFAAOCAQ8AMIIBCgKCAQEAy14JM1EVS+y5CsPo',
+#             'xvokcnYKlHVownd7A8RqcW0Ndb/PMZy1htsLgskDLwVbwp4TjxaNi6Wxakt0Kz',
+#             'xeLT6AC7vmg0zHyMUzy0ra6sWyg3lPfool6wHKlF0ary2KQmbd6yyN+AyiQIT6',
+#             'kq+E7hqyElnuAWUjA/Irnwlr2aZTBkQ3jUOY4c9IPa2FkYYdBuRASCAL8d0',
+#             'rvoCqPpF+xvQF4W1uVjNx14wUcm739LAW+1Uw6VATrxZDp7QRhJd35zDQdwena',
+#             'BbWVelqWm2RoTE0BARU6mTHsD3bO1OvwwqBS9uw/scLxpPW0AwlSkksUOSzKI2',
+#             'FMNNyn0kKGk2ZJFWUowIDAQAB'
+#         ])
+#         monkey_text_from_host = "".join([
+#             'v=DKIM1\; k=rsa\; ',
+#             'p=MIIBIjANBgkqhkiG9wcheQEFAAOCAQ8AMIIBCgKCAQEAy14JM1EVS+y5CsPo',
+#             'xvokcnYKlHVownd7A8RqcW0Ndb/PMZy1htsLgskDLwVbwp4TjxaNi6Wxakt0Kz',
+#             'xeLT6AC7vmg0zHyMUzy0ra6sWyg3lPfool6wHKlF0ary2KQmbd6yyN+AyiQIT6',
+#             'kq+E7hqyElnuAWUjA/Irnwlr2aZTBkQ3jUOY4c9IPa2FkYYdBuRAS" "CAL8d0',
+#             'rvoCqPpF+xvQF4W1uVjNx14wUcm739LAW+1Uw6VATrxZDp7QRhJd35zDQdwena',
+#             'BbWVelqWm2RoTE0BARU6mTHsD3bO1OvwwqBS9uw/scLxpPW0AwlSkksUOSzKI2',
+#             'FMNNyn0kKGk2ZJFWUowIDAQAB'
+#         ])
+# 
+#         class MonkeyDKIM(object):
+#             def domainkey(*args, **kwargs):
+#                 class OB(object): pass
+#                 ob = OB()
+#                 ob.subdomain = "foo._domainkey.example.com"
+#                 ob.v = "DKIM1"
+#                 ob.k = "rsa"
+#                 ob.p = "foobar"
+#                 ob.text = "RASCAL"
+#                 return ob
+# 
+#         class MonkeyDomain(Domain):
+#             def query(self, *args, **kwargs):
+#                 return '{} descriptive text "{}"'.format(self.host, monkey_text_from_host)
+# 
+#         monkey_dns = testdata.patch(dns, Domain=MonkeyDomain, DKIM=MonkeyDKIM)
+# 
+#         d = monkey_dns.Domain("example.com")
+#         self.assertTrue("RASCAL" in d.dkim()[0]["text"])
+#         self.assertEqual(monkey_text_valid, d.dkim()[0]["text"])
+#         return
+# 
+#         d = monkey_dns.Alias("example.com", "mail.example.com")
+#         dkim = d.needed_dkim()
+#         pout.v(dkim[1][1])
+#         self.assertTrue("RASCAL" in dkim[1][1])
+
+    def test_domainkey(self):
+        d = Domain("example.com")
+
+        monkey_text_valid = "".join([
+            'v=DKIM1; k=rsa; ',
+            'p=MIIBIjANBgkqhkiG9wcheQEFAAOCAQ8AMIIBCgKCAQEAy14JM1EVS+y5CsPo',
+            'xvokcnYKlHVownd7A8RqcW0Ndb/PMZy1htsLgskDLwVbwp4TjxaNi6Wxakt0Kz',
+            'xeLT6AC7vmg0zHyMUzy0ra6sWyg3lPfool6wHKlF0ary2KQmbd6yyN+AyiQIT6',
+            'kq+E7hqyElnuAWUjA/Irnwlr2aZTBkQ3jUOY4c9IPa2FkYYdBuRASCAL8d0',
+            'rvoCqPpF+xvQF4W1uVjNx14wUcm739LAW+1Uw6VATrxZDp7QRhJd35zDQdwena',
+            'BbWVelqWm2RoTE0BARU6mTHsD3bO1OvwwqBS9uw/scLxpPW0AwlSkksUOSzKI2',
+            'FMNNyn0kKGk2ZJFWUowIDAQAB'
+        ])
+        monkey_text_from_host = "".join([
+            'v=DKIM1\; k=rsa\; ',
+            'p=MIIBIjANBgkqhkiG9wcheQEFAAOCAQ8AMIIBCgKCAQEAy14JM1EVS+y5CsPo',
+            'xvokcnYKlHVownd7A8RqcW0Ndb/PMZy1htsLgskDLwVbwp4TjxaNi6Wxakt0Kz',
+            'xeLT6AC7vmg0zHyMUzy0ra6sWyg3lPfool6wHKlF0ary2KQmbd6yyN+AyiQIT6',
+            'kq+E7hqyElnuAWUjA/Irnwlr2aZTBkQ3jUOY4c9IPa2FkYYdBuRAS" "CAL8d0',
+            'rvoCqPpF+xvQF4W1uVjNx14wUcm739LAW+1Uw6VATrxZDp7QRhJd35zDQdwena',
+            'BbWVelqWm2RoTE0BARU6mTHsD3bO1OvwwqBS9uw/scLxpPW0AwlSkksUOSzKI2',
+            'FMNNyn0kKGk2ZJFWUowIDAQAB'
+        ])
+        def monkey_query(self, *args, **kwargs):
+            return '{} descriptive text "{}"'.format(self.host, monkey_text_from_host)
+
+        testdata.patch(d, query=monkey_query)
+
+        self.assertTrue("RASCAL" in d.dkim()[0]["text"])
+        self.assertEqual(monkey_text_valid, d.dkim()[0]["text"])
 
 # class MailserverTest(TestCase):
 #     def test_

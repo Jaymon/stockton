@@ -47,7 +47,14 @@ class IP(str):
 
     def download_geo(self):
         gz_path = "{}.gz".format(self.geo_path)
+        # http://stackoverflow.com/a/31857152/5006
         urllib.urlretrieve(self.geo_url, gz_path)
+
+        # TODO -- see if this works
+        # https://docs.python.org/2/library/gzip.html
+#         with open('file.txt', 'rb') as f_in, gzip.open('file.txt.gz', 'wb') as f_out:
+#             shutil.copyfileobj(f_in, f_out)
+
         with gzip.open(gz_path, 'rb') as gzf:
             with open(self.geo_path, "wb") as f:
                 f.write(gzf.read())

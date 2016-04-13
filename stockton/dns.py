@@ -76,8 +76,8 @@ class Alias(Record):
         dk = DKIM()
         domainkey = dk.domainkey(self.domain.host)
         d = Domain(domainkey.subdomain)
-        txts = d.txt("dkim")
-        if not txts or (domainkey.p not in txts[0]):
+        txts = d.dkim()
+        if not txts or (domainkey.p not in txts[0]["text"]):
             ret = [
                 ("hostname", domainkey.subdomain),
                 ("text", domainkey.text),
@@ -143,7 +143,7 @@ class Domain(object):
         ret = []
         output = self.query("txt")
         records = self.records(
-            "^{}\s+descriptive\s+text\s+\"([^\"]*)\"$".format(self.host),
+            "^{}\s+descriptive\s+text\s+\"(.*?)\"$".format(self.host),
             output,
             filter_regex
         )
@@ -154,6 +154,14 @@ class Domain(object):
             })
 
         return ret
+
+    def dkim(self):
+        txts = self.txt("=dkim")
+        if txts:
+            for i in range(len(txts)):
+                txts[i]["text"] = re.sub("\"\s+\"", "", txts[i]["text"])
+                txts[i]["text"] = re.sub("\\\\;", ";", txts[i]["text"])
+        return txts
 
     def ptr(self, filter_regex=""):
         output = self.query("PTR")

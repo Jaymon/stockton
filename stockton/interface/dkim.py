@@ -10,6 +10,12 @@ from ..concur.formats.opendkim import OpenDKIM
 
 class DomainKey(object):
     @property
+    def txt_f(self):
+        dk = DKIM()
+        txt_f = Filepath(dk.keys_d, "{}.txt".format(self.domain))
+        return txt_f
+
+    @property
     def text(self):
         dkim_text = "{} {} {}".format(self.v, self.k, self.p)
         return dkim_text
@@ -17,18 +23,17 @@ class DomainKey(object):
     def __init__(self, domain):
         self.domain = domain
 
-        dk = DKIM()
-        txt_f = Filepath(dk.keys_d, "{}.txt".format(domain))
-        contents = txt_f.contents()
+        contents = self.txt_f.contents()
         m = re.match("^(\S+)", contents)
         self.subdomain = "{}.{}".format(m.group(1), domain)
 
         mv = re.search("v=\S+", contents)
         mk = re.search("k=\S+", contents)
         mp = re.search("p=[^\"]+", contents)
+        mps = re.findall("\"(?!\S=)(\S+?)\"", contents)
         self.v = mv.group(0)
         self.k = mk.group(0)
-        self.p = mp.group(0)
+        self.p = "".join([mp.group(0)] + mps)
 
     def __str__(self):
         return self.text
@@ -60,6 +65,9 @@ class DKIM(object):
     def trustedhosts_f(self):
         return Filepath(self.opendkim_d, "TrustedHosts")
 
+    def __init__(self):
+        self.bits = 2048
+
     def domainkey(self, domain):
         return DomainKey(domain)
 
@@ -90,7 +98,8 @@ class DKIM(object):
         txt_f = Filepath(keys_d, "{}.txt".format(domain))
         if not txt_f.exists() or gen_key:
             #cli.run("opendkim-genkey --domain={} --verbose --directory=\"{}\"".format(
-            cli.run("opendkim-genkey --bits=2048 --domain={} --directory=\"{}\"".format(
+            cli.run("opendkim-genkey --bits={} --domain={} --directory=\"{}\"".format(
+                self.bits,
                 domain,
                 keys_d.path
             ))
@@ -130,4 +139,8 @@ class DKIM(object):
         else:
             cli.run("/etc/init.d/opendkim restart")
 
+    def install(self):
+        cli.package("opendkim", "opendkim-tools")
+        self.opendkim_d.create()
+        self.keys_d.create()
 

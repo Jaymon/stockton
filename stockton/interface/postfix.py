@@ -26,6 +26,7 @@ class Cert(object):
     def __init__(self, domain):
         self.domain = domain
         self.certs_d = Dirpath("/etc/postfix/certs")
+        self.bits = 4096
 
     def assure(self):
         if not self.exists():
@@ -54,7 +55,7 @@ class Cert(object):
         cli.run(" ".join([
             "openssl req",
             "-new",
-            "-newkey rsa:4096",
+            "-newkey rsa:{}".format(self.bits),
             # openssl 1.0.2+ only, comment out above line and uncomment next 2
             #"-newkey ec",
             #"-pkeyopt ec_paramgen_curve:prime256v1",

@@ -199,15 +199,11 @@ def main_configure_dkim():
 
     echo.h2("Configuring Postfix to use DKIM")
 
-    cli.package("opendkim", "opendkim-tools")
-
     dk = DKIM()
     opendkim_d = dk.opendkim_d
-    opendkim_d.create()
     opendkim_d.clear()
 
     keys_d = dk.keys_d
-    keys_d.create()
     keys_d.clear()
 
     hosts = [
@@ -446,6 +442,7 @@ def main_add_domain(domain, proxy_file, proxy_email, smtp_username, smtp_passwor
 @arg('domain', help='The email domain (eg, example.com)')
 def main_gen_domain_key(domain):
     """re-generate the DKIM key for domain"""
+    p = Postfix()
     dk = DKIM()
     dk.add_domain(domain, gen_key=True)
     main_check_domain(domain, ["dkim"])
