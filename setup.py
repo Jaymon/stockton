@@ -2,29 +2,29 @@
 # http://docs.python.org/distutils/setupscript.html
 # http://docs.python.org/2/distutils/examples.html
 
-import sys
 from setuptools import setup, find_packages
+import re
+import os
 
-import stockton as module
-name = module.__name__
-version = module.__version__
+
+name = "stockton"
+with open(os.path.join(name, "__init__.py"), 'rU') as f:
+    version = re.search("^__version__\s*=\s*[\'\"]([^\'\"]+)", f.read(), flags=re.I | re.M).group(1)
 
 setup(
     name=name,
     version=version,
-    description='Easy peasy domain proxy',
+    description='Easy peasy email domain proxy',
     author='Jay Marcyes',
     author_email='jay@marcyes.com',
     url='http://github.com/jaymon/{}'.format(name),
     packages=find_packages(),
-    license="MIT",
     install_requires=['geoip2'],
     tests_require=['testdata'],
     classifiers=[ # https://pypi.python.org/pypi?:action=list_classifiers
         'Development Status :: 4 - Beta',
         'Environment :: Web Environment',
         'Intended Audience :: End Users/Desktop',
-        'License :: OSI Approved :: MIT License',
         'Operating System :: POSIX :: Linux',
         'Programming Language :: Python :: 2.7',
         'Topic :: Communications :: Email',

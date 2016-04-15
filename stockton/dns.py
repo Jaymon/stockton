@@ -63,7 +63,7 @@ class Alias(Record):
 
     def needed_spf(self):
         ret = []
-        txts = self.domain.txt("spf")
+        txts = self.domain.spf()
         if not txts:
             ret = [
                 ("hostname", self.domain.host),
@@ -161,6 +161,10 @@ class Domain(object):
             for i in range(len(txts)):
                 txts[i]["text"] = re.sub("\"\s+\"", "", txts[i]["text"])
                 txts[i]["text"] = re.sub("\\\\;", ";", txts[i]["text"])
+        return txts
+
+    def spf(self):
+        txts = self.txt("=spf")
         return txts
 
     def ptr(self, filter_regex=""):
