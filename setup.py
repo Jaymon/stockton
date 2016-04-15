@@ -19,6 +19,7 @@ setup(
     author_email='jay@marcyes.com',
     url='http://github.com/jaymon/{}'.format(name),
     packages=find_packages(),
+    license='GPLv2+',
     install_requires=['geoip2'],
     tests_require=['testdata'],
     classifiers=[ # https://pypi.python.org/pypi?:action=list_classifiers
@@ -28,6 +29,7 @@ setup(
         'Operating System :: POSIX :: Linux',
         'Programming Language :: Python :: 2.7',
         'Topic :: Communications :: Email',
+        'License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)'
     ],
 #     entry_points = {
 #         'console_scripts': [
