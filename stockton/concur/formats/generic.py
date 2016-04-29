@@ -63,15 +63,19 @@ class SpaceOption(base.ConfigOption):
         commenters = self.config.commenters
         divider = self.config.option_divider
 
-        if not re.match("^[{}]\s+".format(commenters), line): # this could be a comment line
-            if re.match("^[{}]?\S+".format(commenters), line): # name  val
-                name, val = re.split("\s+", line, 2)
-                name.lstrip(commenters)
+        if re.match("^[^{}]\S+".format(commenters), line): # name val
+            name, val = re.split("\s+", line, 1)
 
-            bits = re.split("\s[{}]\s*".format(commenters), val, 2)
-            val = bits[0]
-            if len(bits) > 1:
-                comment = bits[1]
+        elif re.match("^[{}]\s*\S+\s*{}".format(commenters, divider), line): # # name val
+            l = re.sub("^[{}]\s*".format(commenters), "", line)
+            name, val = re.split("\s+", l, 1)
+
+        #elif re.match("^[{}]".format(commenters)):
+
+        bits = re.split("\s[{}]\s*".format(commenters), val, 1)
+        val = bits[0]
+        if len(bits) > 1:
+            comment = bits[1]
 
         self.name = name
         self.val = val

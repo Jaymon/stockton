@@ -71,7 +71,10 @@ class SpaceTest(TestCase):
         ]))
 
         c = generic.SpaceConfig(prototype_path=path)
-        self.assertEqual(3, len(c.options))
+        self.assertTrue(c["syslog"])
+        self.assertTrue(c["UMask"])
+        self.assertTrue(c["Domain"])
+        #self.assertEqual(3, len(c.options))
 
 
 class PostfixTest(TestCase):
@@ -268,8 +271,33 @@ class PostfixTest(TestCase):
         self.assertEqual(4, str(m).count("#"))
         self.assertEqual(11, len(m["submission"].options))
 
+    def test_master_add_section(self):
+#         master_path = testdata.create_file("master.cf", "\n".join([
+#             "smtp      inet  n       -       -       -       -       smtpd",
+#         ]))
+        master = postfix.Master(prototype_path="")
+        section = master.create_section("smtp inet n - - - - smtpd")
+        self.assertEqual(0, len(master.sections))
+        master["smtp"] = section
+        self.assertEqual(1, len(master.sections))
+        self.assertEqual("smtp", master["smtp"].name)
+
+
 
 class ConfigTest(TestCase):
+    def test_update_before(self):
+        contents = "\n".join([
+            "foo = 1",
+            "baz = 3",
+        ])
+        path = testdata.create_file("update_before.conf", contents)
+        conf = Config(prototype_path=path)
+
+        conf.update_before("baz", ("bar", 2))
+        self.assertTrue("foo" in str(conf.lines[0]))
+        self.assertTrue("bar" in str(conf.lines[1]))
+        self.assertTrue("baz" in str(conf.lines[2]))
+
     def test_options(self):
         contents = "\n".join([
             "foo=bar",

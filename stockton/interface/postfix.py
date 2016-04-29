@@ -83,6 +83,14 @@ class Postfix(object):
         return m["myhostname"].val
 
     @property
+    def helo(self):
+        return SpaceConfig(dest_path=self.helo_f.path)
+
+    @property
+    def helo_f(self):
+        return Filepath("/etc/postfix/helo.regexp")
+
+    @property
     def main_f(self):
         return Filepath(Main.dest_path)
 
@@ -202,6 +210,9 @@ class Postfix(object):
 
         return m
 
+    def master(self, path=Master.dest_path):
+        return Master(prototype_path=path)
+
     def main_backups(self):
         """return any backups of the Postfix main.cf file"""
         for mbak_f in self.config_d.files("main.*?\.bak$"):
@@ -234,4 +245,13 @@ class Postfix(object):
         echo.h3("Clearing {}", virtual_d)
         virtual_d.clear()
 
+
+    def is_running(self):
+        ret = True
+        try:
+            cli.running("postfix")
+        except RuntimeError:
+            ret = False
+
+        return ret
 

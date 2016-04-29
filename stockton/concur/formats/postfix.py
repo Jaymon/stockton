@@ -112,8 +112,15 @@ class MasterOption(base.ConfigOption):
         return s
 
 
+class MasterLine(base.ConfigLine):
+    def __str__(self):
+        # TODO -- test this with an existing line to make sure it doesn't double indent
+        return "  {}".format(self.line.lstrip())
+
+
 class Master(base.Config):
     section_class = MasterSection
     option_class = MasterOption
+    line_class = MasterLine
     dest_path = "/etc/postfix/master.cf"
 

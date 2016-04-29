@@ -8,20 +8,20 @@ from captain.client import Captain
 from stockton import cli
 from stockton.path import Filepath, Dirpath
 from stockton.concur.formats.postfix import Main, SMTPd, Master
-from stockton.interface import Postfix
+from stockton.interface import Postfix, Spam
 
 
 class Stockton(Captain):
+
+    script_quiet = False
+
     def __init__(self, subcommand):
         self.cmd_prefix = "python -m stockton --verbose {}".format(subcommand.replace("_", "-"))
         super(Stockton, self).__init__("")
 
-    def run(self, arg_str='', **process_kwargs):
-        lines = ""
-        for line in super(Stockton, self).run(arg_str, **process_kwargs):
-            self.flush(line)
-            lines += line
-        return lines
+#     def run(self, arg_str='', **process_kwargs):
+#         process_kwargs.setdefault("quiet", False)
+#         return super(Stockton, self).run(arg_str, **process_kwargs)
 
 
 def setUpModule():
@@ -384,16 +384,21 @@ class DomainTest(TestCase):
 
 
 class LockdownTest(TestCase):
-    def setUp(self):
-        cli.running("postfix")
+    def test_spam(self):
+        s = Stockton("lockdown-spam")
+        r = s.run()
+        #pout.v(r)
 
-    def test_run(self):
+        sp = Spam()
+        self.assertTrue(sp.is_running())
+
+    def test_postfix(self):
         self.setup_domain("example.com")
 
-        s = Stockton("lockdown")
+        s = Stockton("lockdown-postfix")
         r = s.run("--mailserver=mail.example.com")
-        cli.running("postfix")
 
-        helo_f = Filepath("/etc/postfix/helo.regexp")
-        self.assertTrue(helo_f.exists())
+        p = Postfix()
+        self.assertTrue(p.is_running())
+        self.assertTrue(p.helo_f.exists())
 

@@ -7,10 +7,21 @@ generics
 """
 import re
 from collections import defaultdict
+import itertools
 
 
 class ConfigBase(object):
     """the base common class for most of the other more useful classes"""
+    @property
+    def factory(self):
+        try:
+            cls = self.config
+            cls.option_class
+        except AttributeError:
+            cls = self
+            cls.option_class
+        return cls
+
     def __init__(self, config):
         self.config = config
         self.reset()
@@ -18,7 +29,13 @@ class ConfigBase(object):
     def reset(self):
         self.sections = defaultdict(list)
         self.options = defaultdict(list)
+
+        # there are some things to keep in mind about lines, they don't have to be
+        # true line numbers in the config file, they are line numbers in relation
+        # to the content area you are in, so if the config file has 2 sections, then
+        # there will only be 2 "lines" in that config file, one for each section
         self.lines = []
+
         self.name = ""
         self.val = ""
 
@@ -30,12 +47,65 @@ class ConfigBase(object):
     def is_valid(self):
         return True
 
-    def update(self, *args, **kwargs):
-        for k, v in args:
-            self[k] = v
+    def create_option_for_key(self, k):
+        """creates an option with name k, does not insert option into config file"""
+        option = self.factory.create_option()
+        option.name = k
+        return option
 
-        for k, v in kwargs.items():
-            self[k] = v
+    def update(self, *args, **kwargs):
+        for body in itertools.chain(args, kwargs.items()):
+            if isinstance(body, basestring):
+                line = self.factory.create_line()
+                line.line = body
+                self.insert(len(self.lines), line)
+            else:
+                k, v = body
+                self[k] = v
+
+    def update_before(self, k, *args, **kwargs):
+        """same as update but will insert all the args and kwargs before the option
+        at k"""
+        line_numbers = self.find_lines(k)
+        if line_numbers:
+            line_number = line_numbers[0] # the min line number you need to insert before
+            for k, v in itertools.chain(args, kwargs.items()):
+                if k in self:
+                    self[k] = v
+
+                else:
+                    option = self.create_option_for_key(k)
+                    option.val = v
+                    self.insert(line_number, option)
+
+        else:
+            self.update(*args, **kwargs)
+
+    def insert(self, line_number, option):
+        """insert option before the given line_number, this is similar to the python
+        built-in list.insert method, you need to use this function to keep all the
+        internal data structurs in alignment"""
+        if line_number < len(self.lines):
+            # go through and move everything down to compensate for the
+            # insert in the line_number list and line everything back up again
+            for k in self.options.keys():
+                k_line_numbers = self.options[k]
+                for i in range(len(k_line_numbers)):
+                    if k_line_numbers[i] > line_number:
+                        k_line_numbers[i] += 1
+
+            for k in self.sections.keys():
+                k_line_numbers = self.sections[k]
+                for i in range(len(k_line_numbers)):
+                    if k_line_numbers[i] > line_number:
+                        k_line_numbers[i] += 1
+
+        self.lines.insert(line_number, option)
+        if isinstance(option, self.factory.option_class):
+            self.options[option.name].append(line_number)
+
+        else:
+            self.sections[option.name].append(line_number)
 
     def __setattr__(self, k, v):
         # http://stackoverflow.com/questions/17576009/python-class-property-use-setter-but-evade-getter
@@ -47,29 +117,31 @@ class ConfigBase(object):
             super(ConfigBase, self).__setattr__(k, v)
 
     def __missing__(self, k):
-        try:
-            # we are either a section or the config option, assume we are a
-            # section, fallback to being the config
-            option = self.config.create_option()
-        except AttributeError:
-            option = self.create_option()
-
-        option.name = k
-        self.options[option.name].append(len(self.lines))
-        self.lines.append(option)
+        option = self.create_option_for_key(k)
+        self.insert(len(self.lines), option)
         return option
 
     def __contains__(self, k):
         return k in self.sections or k in self.options
 
-    def __getitem__(self, k):
+    def find_lines(self, k):
+        """return how many lines the key is found in the config file"""
         line_numbers = []
+
         if k in self.sections:
             line_numbers = self.sections[k]
 
         elif k in self.options:
             line_numbers = self.options[k]
 
+        return line_numbers
+
+    def __getitem__(self, k):
+        line_numbers = self.find_lines(k)
+
+        # after we have the line count, we pull out that many lines, it's a string
+        # if it is a one line value, or an array of lines if it encompassed more than
+        # one line, if we didn't find the value at all, then create it
         if len(line_numbers) == 1:
             v = self.lines[line_numbers[0]]
 
@@ -83,25 +155,35 @@ class ConfigBase(object):
         return v
 
     def __setitem__(self, k, v):
-        if k in self.sections:
-            raise ValueError("you cannot modify sections using dict notation")
-
-        line_numbers = []
-
-        if k in self.options:
-            line_numbers = self.options[k]
-
-        if len(line_numbers) > 0:
-            for line_number in line_numbers:
-                option = self.lines[line_number]
-                option.val = v
+        if isinstance(v, self.factory.section_class):
+            if k in self.sections:
+                self.sections[k] = v
+            else:
+                self.insert(len(self.lines), v)
 
         else:
-            option = self.__missing__(k)
-            option.val = v
+            if k in self.sections:
+                raise ValueError("you cannot modify sections using dict string notation")
+
+            line_numbers = []
+
+            if k in self.options:
+                line_numbers = self.options[k]
+
+            if len(line_numbers) > 0:
+                for line_number in line_numbers:
+                    option = self.lines[line_number]
+                    option.val = v
+
+            else:
+                option = self.__missing__(k)
+                option.val = v
 
 
 class ConfigLine(ConfigBase):
+    """This can be the base class for the different sections and options, or it
+    can be a representation of a comment or some other line we don't usually do
+    anything with"""
     def __str__(self):
         return self.line
 
@@ -110,6 +192,7 @@ class ConfigLine(ConfigBase):
 
 
 class ConfigOption(ConfigLine):
+    """This represents any key -> value pair in the configuration file"""
     def is_valid(self):
         return bool(self.name)
 
@@ -122,13 +205,13 @@ class ConfigOption(ConfigLine):
         divider = self.config.option_divider
 
         if re.match("^[^{}]\S+".format(commenters), line): # name = val
-            name, val = re.split("\s*{}\s*".format(divider), line, 2)
+            name, val = re.split("\s*{}\s*".format(divider), line, 1)
 
         elif re.match("^[{}]\s*\S+\s*{}".format(commenters, divider), line): # # name = val
             l = re.sub("^[{}]\s*".format(commenters), "", line)
-            name, val = re.split("\s*{}\s*".format(divider), l, 2)
+            name, val = re.split("\s*{}\s*".format(divider), l, 1)
 
-        bits = re.split("\s[{}]\s*".format(commenters), val, 2)
+        bits = re.split("\s[{}]\s*".format(commenters), val, 1)
         val = bits[0]
         if len(bits) > 1:
             comment = bits[1]
@@ -163,6 +246,9 @@ class ConfigOption(ConfigLine):
 
 
 class ConfigSection(ConfigOption):
+    """certain configuration files might be broken up into sections of options, this
+    handles representing those sections so when manipulating the config file you can
+    add and rename sections, etc."""
     def _parse(self, fp):
         pass
 
@@ -172,6 +258,7 @@ class ConfigSection(ConfigOption):
 
 
 class ConfigFile(object):
+    """This handles parsing the file internally"""
     def __init__(self, path, config):
         self.path = path
         self.config = config
@@ -218,6 +305,16 @@ class ConfigFile(object):
         return c
 
 
+class ConfigBody(ConfigFile):
+    def __init__(self, body, config):
+        self.config = config
+        self.lines = body.splitlines(False)
+        self.count = len(self.lines)
+        self.line_number = -1
+
+    def close(self): pass
+
+
 class Config(ConfigBase):
     """config parser that allows you to modify the parsed file and write it back out
 
@@ -226,6 +323,25 @@ class Config(ConfigBase):
 
     If an ini specific parser is added at a later date, use this?
     https://docs.python.org/2/library/configparser.html
+
+    You can modify the config file in 3 different ways:
+
+        1) item notation, config["option"] = "value"
+
+            using the item notation, you set the value, either a string or list
+            of strings
+
+        2) update() notations, config.update([key, val], [key2, val2], ...)
+
+            you send tuples of key, value pairs to the update method, the reason
+            you pass in tuples is so order is preserved
+
+        3) get item, for advanced manipulation of the option
+
+            this is the only way to manipulate a section
+
+            opt = config["option"]
+            opt.val = "value"
     """
 
     commenters = "#"
@@ -240,6 +356,7 @@ class Config(ConfigBase):
 
     file_class = ConfigFile
 
+    body_class = ConfigBody
 
     dest_path = ""
 
@@ -261,8 +378,17 @@ class Config(ConfigBase):
     def create_option(self):
         return self.option_class(self)
 
-    def create_section(self):
-        return self.section_class(self)
+    def create_section(self, body=""):
+        if body:
+            config_s = self.body_class(body, self)
+            for sc in config_s:
+                break
+            sc.modified = True
+
+        else:
+            sc = self.section_class(self)
+
+        return sc
 
     def create_file(self):
         return self.file_class(self.prototype_path, self)

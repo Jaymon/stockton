@@ -15,7 +15,7 @@ from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.concur.formats.generic import SpaceConfig
 from stockton.path import Dirpath, Filepath, Sentinal
 
-from stockton.interface import SMTP, Postfix, PostfixCert, DKIM
+from stockton.interface import SMTP, Postfix, PostfixCert, DKIM, Spam
 
 
 def main_prepare():
@@ -126,37 +126,6 @@ def main_configure_send(domain, mailserver, smtp_username, smtp_password):
 
     cert = PostfixCert(mailserver)
     cert.assure()
-
-#     certs_d = Dirpath("/etc/postfix/certs")
-#     certs_d.create()
-#     certs_key = Filepath(certs_d, "{}.key".format(mailserver))
-#     certs_crt = Filepath(certs_d, "{}.crt".format(mailserver))
-#     certs_pem = Filepath(certs_d, "{}.pem".format(mailserver))
-# 
-#     cli.package("openssl", only_upgrade=True)
-# 
-#     # http://superuser.com/questions/226192/openssl-without-prompt
-#     cli.run(" ".join([
-#         "openssl req",
-#         "-new",
-#         "-newkey rsa:4096",
-#         # openssl 1.0.2+ only, comment out above line and uncomment next 2
-#         #"-newkey ec",
-#         #"-pkeyopt ec_paramgen_curve:prime256v1",
-#         "-days 3650",
-#         "-nodes",
-#         "-x509",
-#         "-subj \"/C={}/ST={}/L={}/O={}/CN={}\"".format(
-#             country,
-#             state,
-#             city,
-#             mailserver,
-#             mailserver
-#         ),
-#         "-keyout {}".format(certs_key),
-#         "-out {}".format(certs_crt)
-#     ]))
-#     cli.run("cat {} {} > {}".format(certs_crt, certs_key, certs_pem))
 
     # make backup of master.cf if it doesn't already exist
     master_f = Filepath(Master.dest_path)
@@ -450,20 +419,9 @@ def main_gen_domain_key(domain):
     dk.restart()
 
 
-def disabled_configure_greylist(self):
-    # TODO -- not sure if want to enable this
-    # https://www.debuntu.org/postfix-and-postgrey-a-proactive-approach-to-spam-filtering/
-    # https://www.debuntu.org/postfix-and-postgrey-a-proactive-approach-to-spam-filtering-page-2/
-    # https://github.com/schweikert/postgrey
-    # http://serverfault.com/questions/701241/postgrey-whitelist-recipients-not-working
-    # http://serverfault.com/questions/1817/does-smtp-greylisting-a-stop-much-spam-and-b-stop-much-legitimate-mail?rq=1
-    # http://serverfault.com/questions/436327/is-greylisting-still-an-efficient-method-for-preventing-spam?rq=1
-    # http://serverfault.com/questions/655924/possible-to-configure-postgrey-to-only-graylist-com-addresses
-    pass
-
 
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
-def main_lockdown(mailserver):
+def main_lockdown_postfix(mailserver):
     # http://www.cyberciti.biz/tips/postfix-spam-filtering-with-blacklists-howto.html
     # http://www.cyberciti.biz/faq/postfix-limit-incoming-or-receiving-email-rate/
     # https://www.debuntu.org/how-to-fight-spam-with-postfix-rbl/
@@ -471,37 +429,39 @@ def main_lockdown(mailserver):
 
     echo.h2("Locking down Postfix")
 
+    p = Postfix()
+
     # make sure we've got a backup before we start messing with stuff, we won't
     # create a backup if it already exists
-    main_f = Filepath(Main.dest_path)
+    main_f = p.main_f
     main_bak = main_f.backup(suffix=".lockdown.bak", ignore_existing=False)
 
     external_ip = cli.ip()
 
     echo.h3("configuring main")
 
-    helo_f = SpaceConfig(dest_path="/etc/postfix/helo.regexp")
-    helo_f.update(
+    h = p.helo
+    h.update(
         ("/^{}$/".format(re.escape(mailserver)), "550 Don't use my own hostname"),
         ("/^{}$/".format(re.escape(external_ip)), "550 Don't use my own IP address"),
         ("/^\[{}\]$/".format(re.escape(external_ip)), "550 Don't use my own IP address"),
         ("/^[0-9.]+$/", "550 Your software is not RFC 2821 compliant"),
         ("/^[0-9]+(\.[0-9]+){3}$/", "550 Your software is not RFC 2821 compliant")
     )
-    helo_f.save()
+    h.save()
 
-    m = Main(prototype_path=main_bak.path)
+    m = p.main(main_bak.path)
     m.update(
         ("disable_vrfy_command", "yes"),
         ("smtpd_delay_reject", "yes"),
-        ("smtpd_helo_required", "yes"),
         ("strict_rfc821_envelopes", "yes"),
+        ("smtpd_helo_required", "yes"),
         ("smtpd_helo_restrictions", ",\n    ".join([
             "permit_mynetworks",
             "permit_sasl_authenticated",
             "reject_non_fqdn_hostname",
             "reject_invalid_hostname",
-            "regexp:/etc/postfix/helo.regexp",
+            "regexp:{}".format(p.helo_f.path),
             "permit"
         ])),
         ("smtpd_recipient_restrictions", ",\n    ".join([
@@ -515,17 +475,39 @@ def main_lockdown(mailserver):
             "reject_unknown_recipient_domain",
             "reject_unauth_destination",
             "reject_unknown_reverse_client_hostname",
-            "reject_rbl_client zen.spamhaus.org",
-            "reject_rbl_client bl.spamcop.net",
-            "reject_rbl_client b.barracudacentral.org",
+
+            # from: http://www.akadia.com/services/postfix_spamassassin.html
+            #reject_unauth_pipelining,
+            #check_client_access hash:$config_directory/access_client,
+            #check_sender_access hash:$config_directory/access_sender
+
+            # disabled for spam assassin
+            #"reject_rbl_client zen.spamhaus.org",
+            #"reject_rbl_client bl.spamcop.net",
+            #"reject_rbl_client b.barracudacentral.org",
+            # disabled previously
             #"reject_rbl_client cbl.abuseat.org",
             #"reject_rbl_client dul.dnsbl.sorbs.net,",
             #"reject_rhsbl_sender dsn.rfc-ignorant.org",
             "permit"
         ])),
+
+        # incoming
         ("smtpd_error_sleep_time", "1s"),
         ("smtpd_soft_error_limit", "10"),
-        ("smtpd_hard_error_limit", "20")
+        ("smtpd_hard_error_limit", "20"),
+
+        # outgoing
+        # This means that postfix will up to two concurrent
+        # connections per receiving domains. The default value is 20.
+        ("smtp_destination_concurrency_limit", 2),
+        # Postfix will add a delay between each message to the same receiving domain.
+        # It overrides the previous rule and in this example, it will send one email
+        # after another with a delay of 1 second.
+        ("smtp_destination_rate_delay", "5s"),
+        # Limit the number of recipients of each message. If a message had 20 recipients
+        # on the same domain, postfix will break it out to two different email messages instead of one.
+        ("smtp_extra_recipient_limit", 10),
     )
     m.save()
 
@@ -534,11 +516,71 @@ def main_lockdown(mailserver):
     # b.barracudacentral.org
     # http://serverfault.com/a/514830/190381
 
-    cli.postfix_reload()
+    p.restart()
 
-# TODO -- I have renamed main_check_domains to domain, so things need to be fixed
-# the add-domain should take a domain-addresses and there should be a new command
-# add-domains that take an addresses dir (what is proxy-domains
+
+def main_lockdown_spam():
+    s = Spam()
+    s.install()
+
+    config_bak = s.config_f.backup(ignore_existing=False)
+    c = s.config(config_bak.path)
+    c.update(
+        ("ENABLED", 1),
+        ("OPTIONS", '"--create-prefs --max-children 5 --username {} --helper-home-dir {} -s /var/log/spamd.log"'.format(
+            s.user,
+            s.home_d
+        )),
+        ("CRON", 1)
+    )
+    c.save()
+
+    local_bak = s.local_f.backup(ignore_existing=False)
+    c = s.local(local_bak.path)
+    c.update(
+        ("rewrite_header", "Subject SPAM _SCORE_ *"),
+        ("report_safe", 0),
+        ("required_score", 5.0),
+        ("use_bayes", 1),
+        ("use_bayes_rules", 1),
+        ("bayes_auto_learn", 1),
+        ("skip_rbl_checks", 0),
+        ("use_razor2", 0),
+        ("use_dcc", 0),
+        ("use_pyzor", 0),
+    )
+    c.save()
+
+    # make backup of master.cf if it doesn't already exist
+    p = Postfix()
+    master_f = p.master_f
+    master_bak = master_f.backup(".lockdown.bak", ignore_existing=False)
+    m = p.master(master_bak.path)
+
+    # add the config to master.cf to enable smtp sending
+    m = Master(prototype_path=master_bak.path)
+    for smtp in m["smtp"]:
+        if smtp.cmd == "smtpd":
+            smtp.update(
+                ("content_filter", "spamassassin")
+            )
+
+    section = m.create_section("spamassassin unix - n n - - pipe")
+    section.update(
+        "user=spamd argv=/usr/bin/spamc -f -e",
+        "/usr/sbin/sendmail -oi -f ${sender} ${recipient}",
+    )
+    m["spamassassin"] = section
+    m.save()
+
+    p.restart()
+    s.restart()
+
+
+@args(main_lockdown_postfix, main_lockdown_spam)
+def main_lockdown(mailserver):
+    main_lockdown_postfix(mailserver)
+    main_lockdown_spam()
 
 
 @arg('domain', help='The domain whose dns will be checked (eg, example.com)')
