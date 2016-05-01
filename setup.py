@@ -14,13 +14,13 @@ with open(os.path.join(name, "__init__.py"), 'rU') as f:
 setup(
     name=name,
     version=version,
-    description='Easy peasy email domain proxy',
+    description='Easy peasy email forwarding for a custom domain',
     author='Jay Marcyes',
     author_email='jay@marcyes.com',
     url='http://github.com/jaymon/{}'.format(name),
     packages=find_packages(),
     license='GPLv2+',
-    install_requires=['geoip2'],
+    install_requires=['geoip2', 'captain'],
     tests_require=['testdata'],
     classifiers=[ # https://pypi.python.org/pypi?:action=list_classifiers
         'Development Status :: 4 - Beta',
