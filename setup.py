@@ -31,9 +31,9 @@ setup(
         'Topic :: Communications :: Email',
         'License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)'
     ],
-#     entry_points = {
-#         'console_scripts': [
-#             ' = {}'.format(name),
-#         ],
-#     },
+    entry_points = {
+        'console_scripts': [
+            '{} = {}.__main__:console'.format(name, name),
+        ],
+    },
 )

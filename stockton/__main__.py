@@ -655,5 +655,6 @@ def console():
 
     exit()
 
-console()
+if __name__ == "__main__":
+    console()
 
