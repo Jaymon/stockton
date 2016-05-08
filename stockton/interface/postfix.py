@@ -78,6 +78,10 @@ class Cert(object):
 class Postfix(object):
 
     @property
+    def conf_d(self):
+        return Dirpath("/etc/postfix")
+
+    @property
     def mailserver(self):
         m = self.main()
         return m["myhostname"].val
@@ -137,6 +141,29 @@ class Postfix(object):
     def addresses(self):
         for domain in self.domains:
             yield self.address(domain)
+
+    def autodiscover_domain(self, proxy_f):
+        """given a proxy file, discover the domain it represents by looking through
+        each line and making sure the first email addresses all match"""
+        if not proxy_f:
+            raise ValueError("proxy_f does not contain a valid path")
+
+        proxy_f = Filepath(proxy_f)
+        domain_check = set()
+        for line in proxy_f:
+            m = re.match("^(\S*@\S+)", line)
+            if m:
+                bits = m.group(1).split("@", 1)
+                if len(bits) == 2:
+                    domain_check.add(bits[1])
+
+        if len(domain_check) == 1:
+            domain = domain_check.pop()
+
+        else:
+            raise ValueError("Found multiple domains in proxy_file {}".format(proxy_f))
+
+        return domain
 
     def add_domain(self, domain, proxy_file, proxy_email):
         if not proxy_file:
@@ -229,22 +256,19 @@ class Postfix(object):
         finally:
             cli.run("postfix reload")
 
-    def reset(self, **kwargs):
-        delete_files = kwargs.get("really_delete_files", False)
-        if not delete_files:
-            raise ValueError("You want to delete files? pass in really_delete_files=True")
+    def reset(self):
+        self.main_f.delete()
+        self.master_f.delete()
+        self.helo_f.delete()
 
         # remove any .bak files in this directory, we do this to make sure any other
         # commands that configure postfix will be able to make correct snapshots of
         # the main.cf file to remain idempotent
-        echo.h3("Clearing .bak files")
         postfix_d = Dirpath("/etc/postfix")
         postfix_d.delete_files(".bak$")
 
         virtual_d = self.virtual_d
-        echo.h3("Clearing {}", virtual_d)
         virtual_d.clear()
-
 
     def is_running(self):
         ret = True
@@ -254,4 +278,11 @@ class Postfix(object):
             ret = False
 
         return ret
+
+    def install(self):
+        cli.package("postfix")
+
+    def uninstall(self):
+        cli.purge("postfix")
+        self.reset()
 

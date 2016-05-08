@@ -8,7 +8,7 @@ import os
 
 
 name = "stockton"
-with open(os.path.join(name, "__init__.py"), 'rU') as f:
+with open(os.path.join(name, "__init__.py")) as f:
     version = re.search("^__version__\s*=\s*[\'\"]([^\'\"]+)", f.read(), flags=re.I | re.M).group(1)
 
 setup(

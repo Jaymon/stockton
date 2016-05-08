@@ -62,6 +62,11 @@ class PrepareTest(TestCase):
 
 
 class ConfigureTest(TestCase):
+    def test_install(self):
+        s = Stockton("install")
+        r = s.run("--mailserver=mail.example.com")
+
+
     def test_recv(self):
         s = Stockton("configure-recv")
         p = Postfix()
@@ -117,37 +122,6 @@ class ConfigureTest(TestCase):
     def test_send(self):
         self.setup_domain("example.com")
         cli.purge("sasl2-bin", "libsasl2-modules")
-
-        cli.package("cyrus-clients-2.4") # for smtptest
-
-        s = Stockton("configure-send")
-        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234"
-        r = s.run(arg_str)
-
-        r = cli.run(
-            "echo QUIT | smtptest -a smtp@example.com -w 1234 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
-            capture_output=True
-        )
-        self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
-
-        r = cli.run(
-            "echo QUIT | smtptest -a smtp@example.com -w 9876 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
-            capture_output=True
-        )
-        self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
-
-        r = cli.run(
-            "echo QUIT | smtptest -a foo@example.com -w 1234 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
-            capture_output=True
-        )
-        self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
-
-#         r = cli.run(
-#             "echo QUIT | smtptest -a smtp -w 1234 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
-#             capture_output=True
-#         )
-#         self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
-
         cli.running("postfix")
 
     def test_dkim(self):
@@ -381,6 +355,36 @@ class DomainTest(TestCase):
             capture_output=True
         )
         self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
+
+#         cli.package("cyrus-clients-2.4") # for smtptest
+#
+#         s = Stockton("configure-send")
+#         arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234"
+#         r = s.run(arg_str)
+# 
+#         r = cli.run(
+#             "echo QUIT | smtptest -a smtp@example.com -w 1234 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
+#             capture_output=True
+#         )
+#         self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
+# 
+#         r = cli.run(
+#             "echo QUIT | smtptest -a smtp@example.com -w 9876 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
+#             capture_output=True
+#         )
+#         self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
+# 
+#         r = cli.run(
+#             "echo QUIT | smtptest -a foo@example.com -w 1234 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
+#             capture_output=True
+#         )
+#         self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
+# 
+# #         r = cli.run(
+# #             "echo QUIT | smtptest -a smtp -w 1234 -t /etc/postfix/certs/example.com.pem -p 587 localhost",
+# #             capture_output=True
+# #         )
+# #         self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
 
 
 class LockdownTest(TestCase):

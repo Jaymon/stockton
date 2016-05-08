@@ -19,6 +19,7 @@ from stockton.interface import SMTP, Postfix, PostfixCert, DKIM, Spam
 
 
 def main_prepare():
+    """Get a server ready to configure postfix by installing postfix"""
     echo.h2("Installing Postfix")
 
     with Sentinal.check("apt-get-update") as s:
@@ -27,13 +28,13 @@ def main_prepare():
 
     #cli.run("apt-get -y install --no-install-recommends postfix")
     #cli.run("debconf-set-selections <<< \"postfix postfix/main_mailer_type string 'No configuration'\"")
-
-    cli.package("postfix")
+    p = Postfix()
+    p.install()
 
 
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
-@arg('--update', action="store_true", help='Update settings instead of replace them')
-def main_configure_recv(mailserver, update):
+@arg('--fresh', action="store_true", help='This will start fresh instead of trying to preserve existing configuration')
+def main_configure_recv(mailserver, fresh):
     """Configure Postfix mailserver to receive email
 
     NOTE -- this doesn't actually configure any domains, in order to actually receive
@@ -45,8 +46,8 @@ def main_configure_recv(mailserver, update):
 
     p = Postfix()
 
-    if not update:
-        p.reset(really_delete_files=True)
+    if fresh:
+        p.reset()
 
     cert = PostfixCert(mailserver)
     cert.assure()
@@ -84,14 +85,14 @@ def main_configure_recv(mailserver, update):
         ("smtp_tls_session_cache_database", "btree:${data_directory}/smtp_scache"),
     ])
 
-    m = p.main_live if update else p.main_new
+    m = p.main_new if fresh else p.main_live
     m.update(*settings)
     m.save()
 
     # make backup of master.cf
     master_bak = p.master_f.backup(ignore_existing=False)
 
-    if update:
+    if not fresh:
         for mbak in p.main_backups():
             mbak.update(*settings)
             mbak.save()
@@ -99,11 +100,8 @@ def main_configure_recv(mailserver, update):
     p.restart()
 
 
-@arg('domain', help='The email domain (eg, example.com)')
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
-@arg('--smtp-username', default="smtp", help='smtp username for sending emails')
-@arg('--smtp-password', help='smtp password for sending emails')
-def main_configure_send(domain, mailserver, smtp_username, smtp_password):
+def main_configure_send(mailserver):
 
     # https://help.ubuntu.com/lts/serverguide/postfix.html#postfix-sasl
     # http://www.postfix.org/SASL_README.html
@@ -111,9 +109,6 @@ def main_configure_send(domain, mailserver, smtp_username, smtp_password):
     echo.h2("Configuring Postfix to send emails")
 
     cli.package("sasl2-bin", "libsasl2-modules")
-
-    s = SMTP()
-    s.add_user(smtp_username, smtp_password, domain)
 
     s = SMTPd()
     s.update(
@@ -149,7 +144,8 @@ def main_configure_send(domain, mailserver, smtp_username, smtp_password):
     )
     m.save()
 
-    cli.postfix_reload()
+    p = Postfix()
+    p.restart()
 
 
 def main_configure_dkim():
@@ -352,38 +348,26 @@ def main_add_domains(proxy_domains, smtp_username, smtp_password):
     Add each of the domains to Postfix, if smtp-password is given, then also set
     up the virtual domain to be able to send email.
     """
+    p = Postfix()
     domains = {}
     for proxy_f in proxy_domains.files():
-        domain_check = set()
-        for line in proxy_f:
-            m = re.match("^(\S*@\S+)", line)
-            if m:
-                bits = m.group(1).split("@", 1)
-                if len(bits) == 2:
-                    domain_check.add(bits[1])
+        domain = p.autodiscover_domain(proxy_f)
+        if domain in domains:
+            raise ValueError("proxy_file {} contains domain {} also seen in {}".format(
+                proxy_f,
+                domain,
+                domains[domain],
+            ))
 
-        if len(domain_check) == 1:
-            domain = domain_check.pop()
-            if domain in domains:
-                raise ValueError("proxy_file {} contains domain {} also seen in {}".format(
-                    proxy_f,
-                    domain,
-                    domains[domain],
-                ))
-
-            domains[domain] = proxy_f
-
-        else:
-            raise ValueError("Found multiple domains in proxy_file {}".format(proxy_f))
+        domains[domain] = proxy_f
 
     for domain, proxy_file in domains.items():
         echo.h2("Adding domain {} from file {}", domain, proxy_file)
         main_add_domain(domain, proxy_file, "", smtp_username, smtp_password)
 
 
-@arg('domain', help='The email domain (eg, example.com)')
+@arg('domain', nargs="?", help='The email domain (eg, example.com)')
 @arg('--proxy-file', default="", help='The file containing domain addresses to proxy emails')
-#@arg('--proxy-domains', default="", help='The directory containing domain configuration files')
 @arg('--proxy-email', default="", help='The final destination email address')
 @arg('--smtp-username', default="smtp", help='smtp username for sending emails')
 @arg('--smtp-password', default="", help='smtp password for sending emails')
@@ -393,6 +377,10 @@ def main_add_domain(domain, proxy_file, proxy_email, smtp_username, smtp_passwor
     add one virtual domain to postfix
     """
     p = Postfix()
+
+    if not domain:
+        domain = p.autodiscover_domain(proxy_file)
+
     p.add_domain(domain, proxy_file, proxy_email)
 
     dk = DKIM()
@@ -410,7 +398,7 @@ def main_add_domain(domain, proxy_file, proxy_email, smtp_username, smtp_passwor
 
 @arg('domain', help='The email domain (eg, example.com)')
 def main_gen_domain_key(domain):
-    """re-generate the DKIM key for domain"""
+    """re-generate the DKIM key for the domain"""
     p = Postfix()
     dk = DKIM()
     dk.add_domain(domain, gen_key=True)
@@ -419,9 +407,9 @@ def main_gen_domain_key(domain):
     dk.restart()
 
 
-
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
 def main_lockdown_postfix(mailserver):
+    """Tighten the postfix restrictions for sending and receiving email"""
     # http://www.cyberciti.biz/tips/postfix-spam-filtering-with-blacklists-howto.html
     # http://www.cyberciti.biz/faq/postfix-limit-incoming-or-receiving-email-rate/
     # https://www.debuntu.org/how-to-fight-spam-with-postfix-rbl/
@@ -520,6 +508,7 @@ def main_lockdown_postfix(mailserver):
 
 
 def main_lockdown_spam():
+    """Install SpamAssassin and configure postfix to use it"""
     s = Spam()
     s.install()
 
@@ -579,6 +568,7 @@ def main_lockdown_spam():
 
 @args(main_lockdown_postfix, main_lockdown_spam)
 def main_lockdown(mailserver):
+    """Run all the lockdown commands"""
     main_lockdown_postfix(mailserver)
     main_lockdown_spam()
 
@@ -636,22 +626,41 @@ def main_check_domain(domain, records=None):
             echo.h3("No local DKIM key found for {}", domain)
 
 
-@args(main_configure_recv, main_configure_send)
-def main_install(domain, mailserver, smtp_username, smtp_password, proxy_domains, proxy_email):
-
+@args(main_configure_recv, main_add_domains, main_add_domain)
+@arg('--proxy-domains', default="")
+def main_install(**kwargs):
+#def main_install(domain, mailserver, smtp_username, smtp_password, proxy_domains, proxy_email):
+    """Install, configure, and lockdown a postfix server"""
     main_prepare()
-    main_configure_recv(domain, mailserver, proxy_domains, proxy_email)
-    main_configure_send(domain, mailserver, smtp_username, smtp_password, country, state, city)
+    main_configure_recv(mailserver=kwargs["mailserver"], fresh=kwargs["fresh"])
+    main_configure_send(mailserver=kwargs["mailserver"])
+
     main_configure_dkim()
     main_configure_srs()
-    main_lockdown(mailserver)
-    main_check_domain(domain)
+    main_lockdown(mailserver=kwargs["mailserver"])
+
+    if kwargs["proxy_domains"]:
+        main_add_domains(
+            proxy_domains=kwargs["proxy_domains"],
+            smtp_username=kwargs["smtp_username"],
+            smtp_password=kwargs["smtp_password"]
+        )
+
+    else:
+        main_add_domain(
+            domain=kwargs["domain"],
+            proxy_file=kwargs["proxy_file"],
+            proxy_email=kwargs["proxy_email"],
+            smtp_username=kwargs["smtp_username"],
+            smtp_password=kwargs["smtp_password"]
+        )
 
 
 def console():
     """we wrap captain.exit() so we can check for root"""
-    if os.environ["USER"] != "root":
-        raise RuntimeError("User is not root, re-run command with sudo")
+    if len(sys.argv) > 1 and "--help" not in sys.argv and "-h" not in sys.argv:
+        if os.environ["USER"] != "root":
+            raise RuntimeError("User is not root, re-run command with sudo")
 
     exit()
 

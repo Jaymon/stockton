@@ -80,6 +80,22 @@ class Path(object):
 
 
 class Dirpath(Path):
+    def count(self, regex=None):
+        count = 0
+        regexp = re.compile(regex, re.I) if regex else None
+        for root_dir, directories, files in os.walk(self.path):
+            if regexp:
+                count += len([f for f in files if regexp.search(f)])
+                count += len([d for d in directories if regexp.search(d)])
+
+            else:
+                count += len(files) + len(directories)
+
+        return count
+
+    def __len__(self):
+        return self.count()
+
     def create(self):
         """create the directory path"""
         return dir_util.mkpath(self.path)
@@ -179,7 +195,11 @@ class Filepath(Path):
         self.write("")
 
     def delete(self):
-        os.unlink(self.path)
+        try:
+            os.unlink(self.path)
+
+        except OSError:
+            pass
 
     def copy(self, dest_path):
         """copy this file to dest_path"""

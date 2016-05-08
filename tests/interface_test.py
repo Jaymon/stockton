@@ -1,22 +1,44 @@
-from unittest import TestCase, SkipTest
 import os
 
 import testdata
 
+from . import TestCase
 #from stockton.dns import Domain
 #from stockton.path import Filepath, Dirpath
+#from stockton.interface.dkim import DKIM
+from stockton.interface import SMTP, Postfix, PostfixCert, DKIM, Spam
 
-from stockton.interface.dkim import DKIM
 
+class PostfixTest(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super(PostfixTest, cls).setUpClass()
+        p = Postfix()
+        p.install()
 
-def setUpModule():
-    if os.environ["USER"] != "root":
-        raise RuntimeError("User is not root, re-run this test with sudo")
+    def test_reset(self):
+        p = Postfix()
+        p.install()
+
+        p.reset()
+        self.assertFalse(p.master_f.exists())
+        self.assertFalse(p.main_f.exists())
+        self.assertFalse(p.helo_f.exists())
+        self.assertEqual(0, p.virtual_d.count())
+
+    def test_uninstall(self):
+        p = Postfix()
+        p.install()
+
+        p.uninstall()
+        self.assertFalse(p.conf_d)
+        self.assertFalse(p.is_running())
 
 
 class DKIMTest(TestCase):
     @classmethod
     def setUpClass(cls):
+        super(DKIMTest, cls).setUpClass()
         d = DKIM()
         d.install()
 
