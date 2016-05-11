@@ -15,7 +15,7 @@ from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.concur.formats.generic import SpaceConfig
 from stockton.path import Dirpath, Filepath, Sentinal
 
-from stockton.interface import SMTP, Postfix, PostfixCert, DKIM, Spam
+from stockton.interface import SMTP, Postfix, PostfixCert, DKIM, Spam, SRS
 
 
 def main_prepare():
@@ -234,38 +234,14 @@ def main_configure_srs():
     http://www.openspf.org/SRS
     """
 
-    # thanks to
-    # http://seasonofcode.com/posts/setting-up-dkim-and-srs-in-postfix.html
-    # http://serverfault.com/questions/82234/srs-sender-rewriting-when-forwarding-mail-through-postfix
-    # http://www.mind-it.info/2014/02/22/forward-postfix-spf-srs/
-    # http://www.openspf.org/SRS
-
     echo.h2("Configuring Postfix to use SRS")
 
-    cli.package("unzip", "cmake", "curl", "build-essential")
+    s = SRS()
+    p = Postfix()
 
-    tmpdir = Dirpath.get_temp()
+    s.install()
 
-    # only download the srs if it doesn't already exist
-    postsrs_f = Filepath(tmpdir, "postsrsd.zip")
-    with Sentinal.check("srs") as s:
-        if not s:
-            # https://github.com/roehling/postsrsd
-            cli.run("curl -L -o postsrsd.zip https://github.com/roehling/postsrsd/archive/master.zip", cwd=tmpdir.path)
-
-        else:
-            echo.out("****** not downloading postsrsd because sentinal {}", s)
-
-    # Build and install.
-    cli.run("unzip -o postsrsd.zip", cwd=tmpdir.path)
-    build_d = Dirpath(tmpdir, "postsrsd-master", "build")
-    build_d.create()
-
-    cli.run("cmake -DCMAKE_INSTALL_PREFIX=/usr ../", cwd=build_d.path)
-    cli.run("make", cwd=build_d.path)
-    cli.run("make install", cwd=build_d.path)
-
-    m = Main(prototype_path=Main.dest_path)
+    m = p.main_live
     m.update(
         ("sender_canonical_maps", "tcp:localhost:10001"),
         ("sender_canonical_classes", "envelope_sender"),
@@ -274,8 +250,8 @@ def main_configure_srs():
     )
     m.save()
 
-    cli.srs_reload()
-    cli.postfix_reload()
+    s.restart()
+    p.restart()
 
 
 @arg('domain', help='The email domain to remove (eg, example.com)')

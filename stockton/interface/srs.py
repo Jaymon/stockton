@@ -1,3 +1,9 @@
+# thanks to
+# http://seasonofcode.com/posts/setting-up-dkim-and-srs-in-postfix.html
+# http://serverfault.com/questions/82234/srs-sender-rewriting-when-forwarding-mail-through-postfix
+# http://www.mind-it.info/2014/02/22/forward-postfix-spf-srs/
+# http://www.openspf.org/SRS
+
 import re
 
 from .. import cli

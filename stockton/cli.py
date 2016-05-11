@@ -96,15 +96,7 @@ def purge(*packages):
         run("apt-get -y remove --purge --auto-remove {}".format(p))
 
 
-def srs_reload():
-    output = run("status postsrsd", capture_output=True)
-    if re.search("stop", output, flags=re.I):
-        run("start postsrsd")
-
-    else:
-        run("restart postsrsd")
-
-
+# TODO -- I think this can probably be removed also
 def running(name):
     pids = []
     try:
