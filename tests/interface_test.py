@@ -1,46 +1,61 @@
 import os
+import time
 
 import testdata
 
-from . import TestCase
+from . import TestCase as BaseTestCase
 #from stockton.dns import Domain
 #from stockton.path import Filepath, Dirpath
 #from stockton.interface.dkim import DKIM
-from stockton.interface import SMTP, Postfix, PostfixCert, DKIM, Spam
+from stockton.interface import Postfix, PostfixCert, DKIM, SRS
+
+
+class TestCase(BaseTestCase):
+
+    service_class = None
+
+    @classmethod
+    def create_instance(cls):
+        return cls.service_class()
+
+    @classmethod
+    def install(cls):
+        s = cls.create_instance()
+        s.install()
+
+    def test_lifecycle(self):
+        s = self.create_instance()
+        s.start()
+        self.assertTrue(s.is_running())
+
+        s.stop()
+        self.assertFalse(s.is_running())
+
+        s.restart()
+        self.assertTrue(s.is_running())
 
 
 class PostfixTest(TestCase):
-    @classmethod
-    def setUpClass(cls):
-        super(PostfixTest, cls).setUpClass()
-        p = Postfix()
-        p.install()
 
-    def test_reset(self):
-        p = Postfix()
-        p.install()
-
-        p.reset()
-        self.assertFalse(p.master_f.exists())
-        self.assertFalse(p.main_f.exists())
-        self.assertFalse(p.helo_f.exists())
-        self.assertEqual(0, p.virtual_d.count())
+    service_class = Postfix
 
     def test_uninstall(self):
         p = Postfix()
-        p.install()
-
         p.uninstall()
-        self.assertFalse(p.conf_d)
+        self.assertFalse(p.config_d.exists())
+        time.sleep(1.25)
         self.assertFalse(p.is_running())
 
 
 class DKIMTest(TestCase):
-    @classmethod
-    def setUpClass(cls):
-        super(DKIMTest, cls).setUpClass()
+
+    service_class = DKIM
+
+    def test_uninstall(self):
         d = DKIM()
-        d.install()
+        d.uninstall()
+        self.assertFalse(d.config_f.exists())
+        self.assertFalse(d.config_d.exists())
 
     def test_domainkey(self):
         """Turns out really long domain keys were having problems being parsed"""
@@ -68,4 +83,11 @@ class DKIMTest(TestCase):
         d.add_domain(domain, gen_key=True)
         dk = d.domainkey(domain)
         self.assertEqual(1418, len(dk.p))
+
+
+class SRSTest(TestCase):
+
+    service_class = SRS
+
+
 

@@ -4,7 +4,13 @@ import os
 
 class TestCase(BaseTestCase):
     @classmethod
+    def install(cls):
+        pass
+
+    @classmethod
     def setUpClass(cls):
         if os.environ["USER"] != "root":
             raise RuntimeError("User is not root, re-run this test with sudo")
+
+        cls.install()
 

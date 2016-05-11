@@ -165,12 +165,6 @@ def main_configure_dkim():
     echo.h2("Configuring Postfix to use DKIM")
 
     dk = DKIM()
-    opendkim_d = dk.opendkim_d
-    opendkim_d.clear()
-
-    keys_d = dk.keys_d
-    keys_d.clear()
-
     hosts = [
         "127.0.0.1",
         "::1",
@@ -383,6 +377,7 @@ def main_add_domain(domain, proxy_file, proxy_email, smtp_username, smtp_passwor
 
     p.add_domain(domain, proxy_file, proxy_email)
 
+    echo.h3("Configuring DKIM for {}", domain)
     dk = DKIM()
     dk.add_domain(domain)
 
@@ -654,6 +649,12 @@ def main_install(**kwargs):
             smtp_username=kwargs["smtp_username"],
             smtp_password=kwargs["smtp_password"]
         )
+
+
+def main_uninstall():
+    # TODO -- this should completely remove all the stuff stockton installed, for
+    # the person that wants to start completely fresh
+    pass
 
 
 def console():

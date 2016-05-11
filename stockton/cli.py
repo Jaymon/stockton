@@ -52,18 +52,24 @@ def run(cmd, capture_output=False, **process_kwargs):
         )
 
         for line in iter(process.stdout.readline, ""):
-            if capture_output:
-                output += line
-            else:
-                #sys.stdout.write(line)
-                echo.verbose(line)
+            output += line
+            echo.verbose(line)
 
+        line = process.stdout.read()
         process.wait()
         if process.returncode > 0:
-            raise RuntimeError("{} returned {}".format(cmd, process.returncode))
+            raise RuntimeError("{} returned {} with output {}".format(
+                cmd,
+                process.returncode, 
+                output
+            ))
 
     except subprocess.CalledProcessError as e:
-        raise RuntimeError("{} returned {}".format(cmd, e.returncode))
+        raise RuntimeError("{} returned {} with output {}".format(
+            cmd,
+            e.returncode,
+            e.output
+        ))
 
     return output
 
@@ -90,26 +96,6 @@ def purge(*packages):
         run("apt-get -y remove --purge --auto-remove {}".format(p))
 
 
-def postfix_reload():
-    try:
-        run("postfix status")
-
-    except RuntimeError:
-        run("postfix start")
-
-    finally:
-        run("postfix reload")
-
-
-def opendkim_reload():
-    output = run("/etc/init.d/opendkim status", capture_output=True)
-    if re.search("opendkim\s+is\s+running", output, flags=re.I):
-        run("/etc/init.d/opendkim start")
-
-    else:
-        run("/etc/init.d/opendkim restart")
-
-
 def srs_reload():
     output = run("status postsrsd", capture_output=True)
     if re.search("stop", output, flags=re.I):
@@ -120,5 +106,16 @@ def srs_reload():
 
 
 def running(name):
-    run("pgrep -f {}".format(name))
+    pids = []
+    try:
+        # Looks like we can't do pgrep from here because python spawns a process that then
+        # shows up in the returned pid list :(
+        output = run("ps aux | grep {} | grep -v 'grep' | tr -s ' ' | cut -f2 -d' '".format(name))
+        #output = run("pgrep -f {}".format(name))
+        pids = map(int, filter(None, output.splitlines(False)))
+
+    except RuntimeError:
+        pass
+
+    return pids
 

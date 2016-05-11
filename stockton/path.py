@@ -7,6 +7,7 @@ import codecs
 import datetime
 import tempfile
 from contextlib import contextmanager
+import hashlib
 
 
 class Path(object):
@@ -159,6 +160,17 @@ class Dirpath(Path):
 
 class Filepath(Path):
     @property
+    def checksum(self):
+        """return -- string -- the md5 hash of the file"""
+        h = hashlib.md5()
+        # http://stackoverflow.com/a/21565932/5006
+        blocksize = 204800
+        with self.open() as fp:
+            for block in iter(lambda: fp.read(blocksize), ""):
+                h.update(block)
+        return h.hexdigest()
+
+    @property
     def name(self):
         return os.path.basename(self.path)
 
@@ -259,7 +271,8 @@ class Filepath(Path):
         """touch the file"""
         # http://stackoverflow.com/a/1160227/5006
 
-        with open(self.path, 'a') as f:
+        #with open(self.path, 'a') as f:
+        with open(self.path, 'w+') as f:
             os.utime(self.path, None)
 #             f.flush()
 #             os.fsync(f.fileno())

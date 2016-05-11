@@ -30,7 +30,21 @@ class SentinalTest(TestCase):
         s = Sentinal(name)
         self.assertTrue(s)
 
+
 class FilepathTest(TestCase):
+    def test_checksum(self):
+        f = Filepath.create_temp("checksum")
+        checksum = f.checksum
+        f.write("foo")
+        checksum2 = f.checksum
+        self.assertNotEqual(checksum, checksum2)
+
+        f.write("bar")
+        time.sleep(0.1)
+        checksum3 = f.checksum
+        self.assertNotEqual(checksum, checksum3)
+        self.assertNotEqual(checksum2, checksum3)
+
     def test_delete_lines(self):
         f = Filepath.create_temp("delete_lines")
         f.writelines([

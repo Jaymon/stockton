@@ -1,4 +1,5 @@
 import re
+import time
 
 from captain import echo
 
@@ -7,6 +8,7 @@ from ..path import Filepath, Dirpath
 from ..concur.formats.postfix import Main, SMTPd, Master
 from ..concur.formats.generic import SpaceConfig
 from ..geo import IP
+from .base import Interface
 
 
 class Cert(object):
@@ -75,12 +77,7 @@ class Cert(object):
         cli.run("cat {} {} > {}".format(certs_crt, certs_key, certs_pem))
 
 
-class Postfix(object):
-
-    @property
-    def conf_d(self):
-        return Dirpath("/etc/postfix")
-
+class Postfix(Interface):
     @property
     def mailserver(self):
         m = self.main()
@@ -92,7 +89,7 @@ class Postfix(object):
 
     @property
     def helo_f(self):
-        return Filepath("/etc/postfix/helo.regexp")
+        return Filepath(self.config_d, "helo.regexp")
 
     @property
     def main_f(self):
@@ -141,6 +138,9 @@ class Postfix(object):
     def addresses(self):
         for domain in self.domains:
             yield self.address(domain)
+
+    def base_configs(self):
+        return [self.main_f, self.master_f]
 
     def autodiscover_domain(self, proxy_f):
         """given a proxy file, discover the domain it represents by looking through
@@ -246,43 +246,57 @@ class Postfix(object):
             mbak = Main(dest_path=mbak_f.path, prototype_path=mbak_f.path)
             yield mbak
 
-    def restart(self):
+    def _run(self, cmd):
+        """this wraps the normal command in a command that will make sure it works"""
+        return cli.run('script -c "{}" -q STDOUT --return'.format(cmd))
+
+    def start(self):
         try:
-            cli.run("postfix status")
+            self._run("postfix start")
+        except RuntimeError as e:
+            if not re.search("Postfix\s+mail\s+system\s+is\s+already\s+running", str(e), re.I):
+                raise
 
-        except RuntimeError:
-            cli.run("postfix start")
+    def restart(self):
+        if self.is_running():
+            self._run("postfix reload")
+        else:
+            self.start()
 
-        finally:
-            cli.run("postfix reload")
+#         try:
+#             self._run("postfix status")
+# 
+#         except RuntimeError:
+#             self.start()
+# 
+#         finally:
+#             self._run("postfix reload")
 
-    def reset(self):
-        self.main_f.delete()
-        self.master_f.delete()
-        self.helo_f.delete()
-
-        # remove any .bak files in this directory, we do this to make sure any other
-        # commands that configure postfix will be able to make correct snapshots of
-        # the main.cf file to remain idempotent
-        postfix_d = Dirpath("/etc/postfix")
-        postfix_d.delete_files(".bak$")
-
-        virtual_d = self.virtual_d
-        virtual_d.clear()
+    def stop(self):
+        o = self._run("postfix stop")
+#         for x in range(20):
+#             if self.is_running():
+#                 time.sleep(0.1)
+#             else:
+#                 break
 
     def is_running(self):
-        ret = True
         try:
-            cli.running("postfix")
+            self._run("postfix status")
+            ret = True
+
         except RuntimeError:
             ret = False
 
         return ret
+#         pids = cli.running("postfix/master")
+#         return True if pids else False
 
     def install(self):
         cli.package("postfix")
 
     def uninstall(self):
+        self.stop()
         cli.purge("postfix")
-        self.reset()
+        self.config_d.delete()
 
