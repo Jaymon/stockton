@@ -4,14 +4,28 @@ class Interface(object):
     def base_configs(self):
         return []
 
+    def base_get(self, name, configs=None):
+        if not configs:
+            configs = self.base_configs()
+
+        base_fs = []
+        for f in configs:
+            base_fs.append(Filepath("{}.{}.base".format(f.path, name)))
+
+        return base_fs
+
     def base_create(self, name, configs=None):
         """create a snapshot of the relevant config files so we could restore if needed"""
         if not configs:
             configs = self.base_configs()
 
+        base_fs = []
         for f in configs:
             if f.exists():
-                base_f = f.backup(suffix=".{}.base".format(name), ignore_existing=True)
+                base_f = f.backup(suffix=".{}.base".format(name), ignore_existing=False)
+                base_fs.append(base_f)
+
+        return base_fs
 
     def base_restore(self, name, configs=None):
         """restore a snapshot of the base"""

@@ -37,21 +37,38 @@ class Spam(object):
     def local_f(self):
         return Filepath(Local.dest_path)
 
-    def config(self, prototype_path=SpamAssassin.dest_path):
-        return SpamAssassin(prototype_path=prototype_path)
+    def base_configs(self):
+        return [self.config_f, self.local_f]
 
-    def local(self, prototype_path=Local.dest_path):
-        return Local(prototype_path=prototype_path)
+    def config(self, path=SpamAssassin.dest_path):
+        return SpamAssassin(prototype_path=path)
+
+    def local(self, path=Local.dest_path):
+        return Local(prototype_path=path)
+
+    def start(self):
+        try:
+            o = cli.run("/etc/init.d/spamassassin start")
+        except RuntimeError as e:
+            if not re.search("already\s+running", str(e), re.I):
+                raise
 
     def restart(self):
-        try:
-            cli.run("/etc/init.d/spamassassin status", capture_output=True)
-
-        except RuntimeError:
-            cli.run("/etc/init.d/spamassassin start")
-
-        else:
+        if self.is_running():
             cli.run("/etc/init.d/spamassassin restart")
+        else:
+            self.start()
+
+    def stop(self):
+        cli.run("/etc/init.d/spamassassin stop")
+
+    def is_running(self):
+        ret = True
+        try:
+            cli.run("/etc/init.d/spamassassin status")
+        except RuntimeError:
+            ret = False
+        return ret
 
     def install(self):
         # make sure the packages are installed
@@ -63,12 +80,7 @@ class Spam(object):
         if not self.home_d.exists():
             raise ValueError("Home directory {} does not exist".format(self.home_d))
 
-    def is_running(self):
-        ret = True
-        try:
-            cli.running("spamd")
-        except RuntimeError:
-            ret = False
-
-        return ret
+    def uninstall(self):
+        self.stop()
+        cli.purge("spamassassin", "spamc")
 

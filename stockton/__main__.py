@@ -15,7 +15,7 @@ from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.concur.formats.generic import SpaceConfig
 from stockton.path import Dirpath, Filepath, Sentinal
 
-from stockton.interface import SMTP, Postfix, PostfixCert, DKIM, Spam, SRS
+from stockton.interface import SMTP, Postfix, DKIM, Spam, SRS
 
 
 def main_prepare():
@@ -33,8 +33,7 @@ def main_prepare():
 
 
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
-@arg('--fresh', action="store_true", help='This will start fresh instead of trying to preserve existing configuration')
-def main_configure_recv(mailserver, fresh):
+def main_configure_recv(mailserver):
     """Configure Postfix mailserver to receive email
 
     NOTE -- this doesn't actually configure any domains, in order to actually receive
@@ -45,11 +44,7 @@ def main_configure_recv(mailserver, fresh):
     echo.h2("Configuring Postfix to receive emails")
 
     p = Postfix()
-
-    if fresh:
-        p.reset()
-
-    cert = PostfixCert(mailserver)
+    cert = p.cert(mailserver)
     cert.assure()
 
     settings = [
@@ -62,8 +57,8 @@ def main_configure_recv(mailserver, fresh):
 
     # Incoming
     settings.extend([
-        ("smtpd_tls_cert_file", cert.crt),
-        ("smtpd_tls_key_file", cert.key),
+        ("smtpd_tls_cert_file", cert.crt_f.path),
+        ("smtpd_tls_key_file", cert.key_f.path),
         ("smtpd_use_tls", "yes"),
         ("smtpd_tls_auth_only", "yes"),
         ("smtpd_tls_security_level", "may"),
@@ -75,8 +70,8 @@ def main_configure_recv(mailserver, fresh):
 
     # Outgoing
     settings.extend([
-        ("smtp_tls_cert_file", cert.crt),
-        ("smtp_tls_key_file", cert.key),
+        ("smtp_tls_cert_file", cert.crt_f.path),
+        ("smtp_tls_key_file", cert.key_f.path),
         ("smtp_use_tls", "yes"),
         ("smtp_tls_security_level", "may"),
         ("smtp_tls_loglevel", 1),
@@ -85,17 +80,12 @@ def main_configure_recv(mailserver, fresh):
         ("smtp_tls_session_cache_database", "btree:${data_directory}/smtp_scache"),
     ])
 
-    m = p.main_new if fresh else p.main_live
+    m = p.main_live
     m.update(*settings)
     m.save()
 
     # make backup of master.cf
-    master_bak = p.master_f.backup(ignore_existing=False)
-
-    if not fresh:
-        for mbak in p.main_backups():
-            mbak.update(*settings)
-            mbak.save()
+    #master_bak = p.master_f.backup(ignore_existing=False)
 
     p.restart()
 
@@ -108,26 +98,29 @@ def main_configure_send(mailserver):
 
     echo.h2("Configuring Postfix to send emails")
 
-    cli.package("sasl2-bin", "libsasl2-modules")
+    p = Postfix()
+    s = SMTP()
 
-    s = SMTPd()
-    s.update(
+    s.install()
+
+    c = s.config
+    c.update(
         ("pwcheck_method", "auxprop"),
         ("auxprop_plugin", "sasldb"),
         ("mech_list", "PLAIN LOGIN CRAM-MD5 DIGEST-MD5 NTLM"),
         ("log_level", "7")
     )
-    s.save()
+    c.save()
 
-    cert = PostfixCert(mailserver)
+    cert = p.cert(mailserver)
     cert.assure()
 
-    # make backup of master.cf if it doesn't already exist
-    master_f = Filepath(Master.dest_path)
-    master_bak = master_f.backup(ignore_existing=False)
+    #master_f = p.master_f
+    #master_bak = p.base_create("send", [master_f])[0]
 
     # add the config to master.cf to enable smtp sending
-    m = Master(prototype_path=master_bak.path)
+    #m = p.master(master_bak.path)
+    m = p.master()
     for smtp in m["smtp"]:
         if smtp.cmd == "smtpd":
             smtp.chroot = "n"
@@ -136,7 +129,7 @@ def main_configure_send(mailserver):
     m["submission"].update(
         ("syslog_name", "postfix/submission"),
         ("smtpd_tls_security_level", "may"),
-        ("smtpd_tls_cert_file", cert.pem.path),
+        ("smtpd_tls_cert_file", cert.pem_f.path),
         ("smtpd_sasl_auth_enable", "yes"),
         ("smtpd_reject_unlisted_recipient", "no"),
         ("smtpd_relay_restrictions", "permit_sasl_authenticated,reject"),
@@ -144,7 +137,6 @@ def main_configure_send(mailserver):
     )
     m.save()
 
-    p = Postfix()
     p.restart()
 
 
@@ -483,8 +475,7 @@ def main_lockdown_spam():
     s = Spam()
     s.install()
 
-    config_bak = s.config_f.backup(ignore_existing=False)
-    c = s.config(config_bak.path)
+    c = s.config()
     c.update(
         ("ENABLED", 1),
         ("OPTIONS", '"--create-prefs --max-children 5 --username {} --helper-home-dir {} -s /var/log/spamd.log"'.format(
@@ -495,8 +486,7 @@ def main_lockdown_spam():
     )
     c.save()
 
-    local_bak = s.local_f.backup(ignore_existing=False)
-    c = s.local(local_bak.path)
+    c = s.local()
     c.update(
         ("rewrite_header", "Subject SPAM _SCORE_ *"),
         ("report_safe", 0),
@@ -513,12 +503,11 @@ def main_lockdown_spam():
 
     # make backup of master.cf if it doesn't already exist
     p = Postfix()
-    master_f = p.master_f
-    master_bak = master_f.backup(".lockdown.bak", ignore_existing=False)
-    m = p.master(master_bak.path)
+#     master_bak = p.base_create("spam", [p.master_f])[0]
+#     m = p.master(master_bak)
+    m = p.master()
 
     # add the config to master.cf to enable smtp sending
-    m = Master(prototype_path=master_bak.path)
     for smtp in m["smtp"]:
         if smtp.cmd == "smtpd":
             smtp.update(
@@ -600,10 +589,9 @@ def main_check_domain(domain, records=None):
 @args(main_configure_recv, main_add_domains, main_add_domain)
 @arg('--proxy-domains', default="")
 def main_install(**kwargs):
-#def main_install(domain, mailserver, smtp_username, smtp_password, proxy_domains, proxy_email):
     """Install, configure, and lockdown a postfix server"""
     main_prepare()
-    main_configure_recv(mailserver=kwargs["mailserver"], fresh=kwargs["fresh"])
+    main_configure_recv(mailserver=kwargs["mailserver"])
     main_configure_send(mailserver=kwargs["mailserver"])
 
     main_configure_dkim()

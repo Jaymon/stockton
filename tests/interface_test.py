@@ -7,11 +7,10 @@ from . import TestCase as BaseTestCase
 #from stockton.dns import Domain
 #from stockton.path import Filepath, Dirpath
 #from stockton.interface.dkim import DKIM
-from stockton.interface import Postfix, PostfixCert, DKIM, SRS
+from stockton.interface import Postfix, DKIM, SRS, Spam
 
 
 class TestCase(BaseTestCase):
-
     service_class = None
 
     @classmethod
@@ -36,19 +35,16 @@ class TestCase(BaseTestCase):
 
 
 class PostfixTest(TestCase):
-
     service_class = Postfix
 
     def test_uninstall(self):
         p = Postfix()
         p.uninstall()
         self.assertFalse(p.config_d.exists())
-        time.sleep(1.25)
         self.assertFalse(p.is_running())
 
 
 class DKIMTest(TestCase):
-
     service_class = DKIM
 
     def test_uninstall(self):
@@ -86,8 +82,28 @@ class DKIMTest(TestCase):
 
 
 class SRSTest(TestCase):
-
     service_class = SRS
 
 
+class SpamTest(TestCase):
+    service_class = Spam
 
+    def test_lifecycle(self):
+        sp = Spam()
+        c = sp.config()
+        c.update(
+            ("ENABLED", 1),
+        )
+        c.save()
+        sp.start()
+
+        super(SpamTest, self).test_lifecycle()
+
+    def test_uninstall(self):
+        sp = Spam()
+        sp.uninstall()
+        self.assertFalse(sp.is_running())
+        self.assertFalse(sp.home_d.exists())
+
+
+del TestCase

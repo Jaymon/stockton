@@ -14,15 +14,15 @@ from .base import Interface
 class Cert(object):
 
     @property
-    def key(self):
+    def key_f(self):
         return Filepath(self.certs_d, "{}.key".format(self.domain))
 
     @property
-    def crt(self):
+    def crt_f(self):
         return Filepath(self.certs_d, "{}.crt".format(self.domain))
 
     @property
-    def pem(self):
+    def pem_f(self):
         return Filepath(self.certs_d, "{}.pem".format(self.domain))
 
     def __init__(self, domain):
@@ -35,16 +35,16 @@ class Cert(object):
             self.create()
 
     def exists(self):
-        return self.pem.exists()
+        return self.pem_f.exists()
 
     def create(self):
         """write out a certificate for the domain"""
         self.certs_d.create()
         domain = self.domain
 
-        certs_key = self.key
-        certs_crt = self.crt
-        certs_pem = self.pem
+        certs_key = self.key_f
+        certs_crt = self.crt_f
+        certs_pem = self.pem_f
 
         ip = IP()
         country = ip.country
@@ -138,6 +138,9 @@ class Postfix(Interface):
     def addresses(self):
         for domain in self.domains:
             yield self.address(domain)
+
+    def cert(self, domain):
+        return PostfixCert(domain)
 
     def base_configs(self):
         return [self.main_f, self.master_f]
@@ -238,6 +241,7 @@ class Postfix(Interface):
         return m
 
     def master(self, path=Master.dest_path):
+        path = str(path)
         return Master(prototype_path=path)
 
     def main_backups(self):
@@ -248,7 +252,8 @@ class Postfix(Interface):
 
     def _run(self, cmd):
         """this wraps the normal command in a command that will make sure it works"""
-        return cli.run('script -c "{}" -q STDOUT --return'.format(cmd))
+        #return cli.run('script -c "{}" -q STDOUT --return'.format(cmd))
+        return cli.run('script -c "{}" -q --return'.format(cmd))
 
     def start(self):
         try:
@@ -262,15 +267,6 @@ class Postfix(Interface):
             self._run("postfix reload")
         else:
             self.start()
-
-#         try:
-#             self._run("postfix status")
-# 
-#         except RuntimeError:
-#             self.start()
-# 
-#         finally:
-#             self._run("postfix reload")
 
     def stop(self):
         o = self._run("postfix stop")
@@ -289,8 +285,6 @@ class Postfix(Interface):
             ret = False
 
         return ret
-#         pids = cli.running("postfix/master")
-#         return True if pids else False
 
     def install(self):
         cli.package("postfix")
