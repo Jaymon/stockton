@@ -18,7 +18,7 @@ class TestCase(BaseTestCase):
         return cls.service_class()
 
     @classmethod
-    def install(cls):
+    def setup_env(cls):
         s = cls.create_instance()
         s.install()
 

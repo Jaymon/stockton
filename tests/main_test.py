@@ -1,41 +1,26 @@
-from unittest import TestCase as BaseTestCase
 import os
 import re
 
 import testdata
-from captain.client import Captain
 
 from stockton import cli
 from stockton.path import Filepath, Dirpath
 from stockton.concur.formats.postfix import Main, SMTPd, Master
 from stockton.interface import Postfix, Spam
 
-
-class Stockton(Captain):
-
-    script_quiet = False
-
-    def __init__(self, subcommand):
-        self.cmd_prefix = "python -m stockton --verbose {}".format(subcommand.replace("_", "-"))
-        super(Stockton, self).__init__("")
-
-#     def run(self, arg_str='', **process_kwargs):
-#         process_kwargs.setdefault("quiet", False)
-#         return super(Stockton, self).run(arg_str, **process_kwargs)
-
-
-def setUpModule():
-    if os.environ["USER"] != "root":
-        raise RuntimeError("User is not root, re-run this test with sudo")
+from . import TestCase as BaseTestCase, Stockton
 
 
 class TestCase(BaseTestCase):
-    def setUp(self):
-        f = Filepath(Main.dest_path)
-        #self.assertTrue(f.exists())
-        if not f.exists():
+#     def setUp(self):
+#         super(TestCase, self).setUp()
+
+    @classmethod
+    def setup_env(cls):
+        p = Postfix()
+        if not p.main_f.exists():
             s = Stockton("prepare")
-            r = s.run("")
+            r = s.run()
 
     def setup_domain(self, domain):
         s = Stockton("configure-recv")
@@ -46,83 +31,55 @@ class TestCase(BaseTestCase):
 
 
 class PrepareTest(TestCase):
-    def setUp(self):
+    @classmethod
+    def setup_env(cls):
         cli.purge("postfix")
 
     def test_run(self):
-        d = Dirpath("/etc/postfix")
+        p = Postfix()
+        d = p.config_d
         self.assertFalse(d.exists())
 
         s = Stockton("prepare")
-        r = s.run("")
+        r = s.run()
 
-        # we use a file to get around filecache at os level
-        f = Filepath(Main.dest_path)
+        f = p.main_f
         self.assertTrue(f.exists())
 
 
 class ConfigureTest(TestCase):
-    def test_install(self):
-        s = Stockton("install")
+    @classmethod
+    def setup_env(cls):
+        super(ConfigureTest, cls).setup_env()
+
+        s = Stockton("configure-recv")
         r = s.run("--mailserver=mail.example.com")
 
-
     def test_recv(self):
-        s = Stockton("configure-recv")
         p = Postfix()
-
-        arg_str = "--mailserver=mail.example.com"
-
-        r = s.run(arg_str)
 
         # make some changes to main
         m = p.main()
         m.update(
-            ("foobar", "1234")
+            ("myhostname", "foobar.com")
         )
         m.save()
 
         f = p.main_f
-        self.assertTrue(f.contains("foobar"))
+        self.assertTrue(f.contains("foobar.com"))
 
         # re-run
         s = Stockton("configure-recv")
-        r = s.run(arg_str)
-        f = Filepath(Main.dest_path)
-        self.assertFalse(f.contains("foobar"))
-
-        cli.running("postfix")
-
-    def test_recv_update(self):
-        s = Stockton("configure-recv")
-        p = Postfix()
-        arg_str = "--mailserver=mail.example.com"
-
-        r = s.run(arg_str)
-        p.main_f.backup(suffix=".foobar.bak", ignore_existing=True)
-
-        # make some changes to main
-        m = p.main_live
-        m.update(
-            ("mydomain", "1234.com")
-        )
-        m.save()
+        r = s.run("--mailserver=mail.example.com")
         f = p.main_f
-        self.assertTrue(f.contains("mydomain"))
-
-        # now rerun, but update
-        arg_str += " --update"
-        r = s.run(arg_str)
-        f = p.main_f
-        self.assertTrue(f.contains("mydomain"))
-        for mbak in p.main_backups():
-            mbak_f = Filepath(mbak.dest_path)
-            self.assertFalse(mbak_f.contains("mydomain"))
+        self.assertFalse(f.contains("foobar.com"))
+        self.assertTrue(p.is_running())
 
     def test_send(self):
-        self.setup_domain("example.com")
-        cli.purge("sasl2-bin", "libsasl2-modules")
-        cli.running("postfix")
+        p = Postfix()
+        s = Stockton("configure-send")
+        r = s.run("--mailserver=mail.example.com")
+        self.assertTrue(p.is_running())
 
     def test_dkim(self):
         #self.test_recv() # we need a configured for receive postfix

@@ -16,7 +16,12 @@ class SMTP(object):
 
     @property
     def config(self):
-        return SMTPd(prototype_path=self.config_f.path)
+        config_f = self.config_f
+        if config_f.exists():
+            s = SMTPd(prototype_path=config_f.path)
+        else:
+            s = SMTPd()
+        return s
 
     def add_user(self, username, password, domain):
         """adds an smtp user with credentials:

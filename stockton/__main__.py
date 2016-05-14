@@ -80,18 +80,16 @@ def main_configure_recv(mailserver):
         ("smtp_tls_session_cache_database", "btree:${data_directory}/smtp_scache"),
     ])
 
-    m = p.main_live
+    m = p.main()
     m.update(*settings)
     m.save()
-
-    # make backup of master.cf
-    #master_bak = p.master_f.backup(ignore_existing=False)
 
     p.restart()
 
 
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
 def main_configure_send(mailserver):
+    """Configure postfix to handle smtp connections so you can send mail"""
 
     # https://help.ubuntu.com/lts/serverguide/postfix.html#postfix-sasl
     # http://www.postfix.org/SASL_README.html

@@ -140,7 +140,7 @@ class Postfix(Interface):
             yield self.address(domain)
 
     def cert(self, domain):
-        return PostfixCert(domain)
+        return Cert(domain)
 
     def base_configs(self):
         return [self.main_f, self.master_f]
@@ -219,26 +219,29 @@ class Postfix(Interface):
         addresses_f = Filepath(self.addresses_d, domain)
         return addresses_f
 
-    def main(self, *path):
-        """return the main config
+    def main(self, path=Main.dest_path):
+        return Main(prototype_path=path)
 
-        *path -- string -- pass in "" to not load any prototype, pass in a path
-            to load that path as the prototype, pass in nothing to get the live
-            main.cf file as the prototype
-
-        return -- Main
-        """
-        if path:
-            if path[0]:
-                m = Main(prototype_path=path[0])
-
-            else:
-                m = Main()
-
-        else:
-            m = Main(prototype_path=Main.dest_path)
-
-        return m
+#     def main(self, *path):
+#         """return the main config
+# 
+#         *path -- string -- pass in "" to not load any prototype, pass in a path
+#             to load that path as the prototype, pass in nothing to get the live
+#             main.cf file as the prototype
+# 
+#         return -- Main
+#         """
+#         if path:
+#             if path[0]:
+#                 m = Main(prototype_path=path[0])
+# 
+#             else:
+#                 m = Main()
+# 
+#         else:
+#             m = Main(prototype_path=Main.dest_path)
+# 
+#         return m
 
     def master(self, path=Master.dest_path):
         path = str(path)
