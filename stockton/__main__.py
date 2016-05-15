@@ -155,31 +155,18 @@ def main_configure_dkim():
     echo.h2("Configuring Postfix to use DKIM")
 
     dk = DKIM()
-    hosts = [
-        "127.0.0.1",
-        "::1",
-        "localhost",
-        "192.168.0.1/24",
-    ]
+    p = Postfix()
+
+    dk.install()
+
     # could also use https://pypi.python.org/pypi/netifaces but this seemed easier
     # http://stackoverflow.com/questions/166506/finding-local-ip-addresses-using-pythons-stdlib
     external_ip = cli.ip()
     if external_ip:
-        hosts.append(external_ip)
+        dk.set_ip(external_ip)
 
-    hosts.append("")
     trustedhosts_f = dk.trustedhosts_f
-    trustedhosts_f.writelines(hosts)
-    #trustedhosts_f = opendkim_d.create_file("TrustedHosts", "\n".join(hosts))
-
-    keytable_f = dk.keytable_f
-    signingtable_f = dk.signingtable_f
-
-    # make backup of config
-    config_f = dk.config_f
-    config_bak = config_f.backup(ignore_existing=False)
-
-    c = OpenDKIM(prototype_path=config_bak.path)
+    c = dk.config()
     c.update(
         ("Canonicalization", "relaxed/simple"),
         ("Mode", "sv"),
@@ -188,15 +175,14 @@ def main_configure_dkim():
         ("LogWhy", "yes"),
         ("UMask", "022"),
         ("UserID", "opendkim:opendkim"),
-        ("KeyTable", keytable_f.path),
-        ("SigningTable", signingtable_f.path),
+        ("KeyTable", dk.keytable_f.path),
+        ("SigningTable", dk.signingtable_f.path),
         ("ExternalIgnoreList", trustedhosts_f.path),
         ("InternalHosts", trustedhosts_f.path),
         ("Socket", "inet:8891@localhost")
     )
     c.save()
 
-    p = Postfix()
     m = p.main()
     m.update(
         ("milter_default_action", "accept"),
@@ -231,7 +217,7 @@ def main_configure_srs():
 
     s.install()
 
-    m = p.main_live
+    m = p.main()
     m.update(
         ("sender_canonical_maps", "tcp:localhost:10001"),
         ("sender_canonical_classes", "envelope_sender"),
@@ -249,41 +235,16 @@ def main_delete_domain(domain):
     """remove a domain from the server"""
     echo.h3("Deleting domain {}", domain)
 
-    # TODO -- most of this should be moved to postfix.py and dkim.py files
-
     # remove postfix settings
-    virtual_d = Dirpath("/etc/postfix/virtual")
-
-    domains_f = Filepath(virtual_d, "domains")
-    domains_f.delete_lines("^{}$".format(domain))
-
-    addresses_d = Dirpath(virtual_d, "addresses")
-    addresses_d.delete_files("^{}".format(domain))
-
-    domain_hashes = []
-    for d in domains_f.lines():
-        domain_f = Filepath(addresses_d, d)
-        domain_hashes.append("hash:{}".format(domain_f.path))
-
-    m = Main(prototype_path=Main.dest_path)
-    m["virtual_alias_maps"] = ",\n  ".join(domain_hashes)
-    m.save()
-
-    # make sure lockdown is still idempotent
-    main_f = Filepath(Main.dest_path)
-    main_bak = main_f.backup(suffix=".lockdown.bak", ignore_existing=True)
+    p = Postfix()
+    p.delete_domain(domain)
 
     # remove dkim settings
-    opendkim_d = Dirpath("/etc/opendkim")
+    dk = DKIM()
+    dk.delete_domain(domain)
 
-    signingtable_f = Filepath(opendkim_d, "SigningTable")
-    signingtable_f.delete_lines(domain)
-
-    trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
-    trustedhosts_f.delete_lines(domain)
-
-    cli.postfix_reload()
-    cli.opendkim_reload()
+    p.restart()
+    dk.restart()
 
 
 @arg(
@@ -345,15 +306,15 @@ def main_add_domain(domain, proxy_file, proxy_email, smtp_username, smtp_passwor
 
     echo.h3("Configuring DKIM for {}", domain)
     dk = DKIM()
-    dk.add_domain(domain)
+    if dk.exists():
+        dk.add_domain(domain)
+        dk.restart()
 
     if smtp_password:
         s = SMTP()
         s.add_user(smtp_username, smtp_password, domain)
 
     p.restart()
-    dk.restart()
-
     main_check_domain(domain)
 
 

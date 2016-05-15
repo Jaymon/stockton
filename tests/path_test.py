@@ -32,6 +32,20 @@ class SentinalTest(TestCase):
 
 
 class FilepathTest(TestCase):
+    def test_create(self):
+        d = testdata.create_dir()
+        fex = testdata.create_file("create_exists", "foo", d)
+        f = Filepath(fex)
+        self.assertTrue(f.exists())
+        f.create()
+        self.assertTrue("foo" in f.lines())
+
+        f = Filepath(d, "create_not_exists")
+        self.assertFalse(f.exists())
+        f.create()
+        self.assertTrue(f.exists())
+        self.assertFalse("foo" in f.lines())
+
     def test_checksum(self):
         f = Filepath.create_temp("checksum")
         checksum = f.checksum

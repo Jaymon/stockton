@@ -250,26 +250,31 @@ class Filepath(Path):
     def open(self, mode="r"):
         return codecs.open(self.path, encoding='utf-8', mode=mode)
 
-    def write(self, contents):
-        with self.open("w+") as f:
+    def write(self, contents, mode="w+"):
+        with self.open(mode) as f:
         #with codecs.open(self.path, encoding='utf-8', mode='w+') as f:
-            f.truncate(0)
-            f.seek(0)
+            #f.truncate(0)
+            #f.seek(0)
             ret = f.write(contents)
 
         return ret
 
-    def writelines(self, lines):
+    def writelines(self, lines, mode="w+"):
         """this is different than built-in python writelines in that it adds the
         newlines at the end of each line"""
-        with self.open("w+") as f:
+        with self.open(mode) as f:
             ret = f.writelines(("{}\n".format(line) for line in lines))
 
         return ret
 
     def create(self):
-        """touch the file"""
+        """create the file if it doesn't exist, touch the file if it does"""
         # http://stackoverflow.com/a/1160227/5006
+
+        with open(self.path, 'a') as f:
+            os.utime(self.path, None)
+
+        return
 
         #with open(self.path, 'a') as f:
         with open(self.path, 'w+') as f:

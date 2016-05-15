@@ -40,9 +40,23 @@ class SRS(Interface):
 
     def is_running(self):
         ret = True
-        output = cli.run("status postsrsd")
-        if re.search("stop", output, flags=re.I):
+        try:
+            output = cli.run("status postsrsd")
+            if re.search("stop", output, flags=re.I):
+                ret = False
+
+        except RuntimeError:
             ret = False
+
+        return ret
+
+    def exists(self):
+        ret = True
+        try:
+            cli.run("status postsrsd")
+        except RuntimeError:
+            ret = False
+
         return ret
 
     def install(self):

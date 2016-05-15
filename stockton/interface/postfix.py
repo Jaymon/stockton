@@ -168,6 +168,25 @@ class Postfix(Interface):
 
         return domain
 
+    def delete_domain(self, domain):
+        # remove postfix settings
+        virtual_d = self.virtual_d
+
+        domains_f = self.domains_f
+        domains_f.delete_lines("^{}$".format(domain))
+
+        addresses_d = self.addresses_d
+        addresses_d.delete_files("^{}".format(domain))
+
+        domain_hashes = []
+        for d in domains_f.lines():
+            domain_f = Filepath(addresses_d, d)
+            domain_hashes.append("hash:{}".format(domain_f.path))
+
+        m = self.main()
+        m["virtual_alias_maps"] = ",\n  ".join(domain_hashes)
+        m.save()
+
     def add_domain(self, domain, proxy_file, proxy_email):
         if not proxy_file:
             if not domain or not proxy_email:
@@ -189,7 +208,7 @@ class Postfix(Interface):
         if proxy_file:
             echo.h3("Adding domain {} with addresses from {} to postfix", domain, proxy_file)
             f = Filepath(proxy_file)
-            domain_f = Filepath(addresses_d, domain)
+            domain_f = self.address(domain)
             f.copy(domain_f)
             new_domains.add(domain)
 
@@ -288,6 +307,9 @@ class Postfix(Interface):
             ret = False
 
         return ret
+
+    def exists(self):
+        return self.config_d.exists()
 
     def install(self):
         cli.package("postfix")

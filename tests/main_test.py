@@ -6,7 +6,7 @@ import testdata
 from stockton import cli
 from stockton.path import Filepath, Dirpath
 from stockton.concur.formats.postfix import Main, SMTPd, Master
-from stockton.interface import Postfix, Spam
+from stockton.interface import Postfix, Spam, DKIM
 
 from . import TestCase as BaseTestCase, Stockton
 
@@ -27,7 +27,7 @@ class TestCase(BaseTestCase):
         r = s.run("--mailserver=mail.example.com")
 
         s = Stockton("add-domain")
-        r = s.run("example.com --proxy-email=dest@dest.com")
+        r = s.run("{} --proxy-email=dest@dest.com".format(domain))
 
 
 class PrepareTest(TestCase):
@@ -47,10 +47,10 @@ class PrepareTest(TestCase):
         self.assertTrue(f.exists())
 
 
-class ConfigureTest(TestCase):
+class ConfigureRecvTest(TestCase):
     @classmethod
     def setup_env(cls):
-        super(ConfigureTest, cls).setup_env()
+        super(ConfigureRecvTest, cls).setup_env()
 
         s = Stockton("configure-recv")
         r = s.run("--mailserver=mail.example.com")
@@ -75,37 +75,40 @@ class ConfigureTest(TestCase):
         self.assertFalse(f.contains("foobar.com"))
         self.assertTrue(p.is_running())
 
+
+class ConfigureSendTest(TestCase):
     def test_send(self):
         p = Postfix()
         s = Stockton("configure-send")
         r = s.run("--mailserver=mail.example.com")
         self.assertTrue(p.is_running())
 
+
+class ConfigureDKIMTest(TestCase):
+    @classmethod
+    def setup_env(cls):
+        dk = DKIM()
+        dk.uninstall()
+        super(ConfigureDKIMTest, cls).setup_env()
+
     def test_dkim(self):
         #self.test_recv() # we need a configured for receive postfix
         self.setup_domain("example.com")
 
-        cli.purge("opendkim", "opendkim-tools")
-        opendkim_d = Dirpath("/etc/opendkim")
-        opendkim_d.delete()
-
         s = Stockton("configure-dkim")
         r = s.run()
 
-        self.assertTrue(opendkim_d.exists())
+        dk = DKIM()
+        p = Postfix()
+        self.assertTrue(dk.config_d.exists())
+        self.assertEqual(1, dk.keytable_f.lc())
+        self.assertEqual(1, dk.signingtable_f.lc())
+        self.assertTrue("*.example.com" in dk.trustedhosts_f.lines())
+        self.assertTrue(dk.is_running())
+        self.assertTrue(p.is_running())
 
-        keytable_f = Filepath(opendkim_d, "KeyTable")
-        self.assertEqual(1, keytable_f.lc())
 
-        signingtable_f = Filepath(opendkim_d, "SigningTable")
-        self.assertEqual(1, signingtable_f.lc())
-
-        trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
-        self.assertTrue("*.example.com" in trustedhosts_f.lines())
-
-        cli.running("postfix")
-        cli.running("opendkim")
-
+class ConfigureSRSTest(TestCase):
     def test_srs(self):
         s = Stockton("configure-srs")
         r = s.run("")
@@ -143,8 +146,7 @@ class DomainTest(TestCase):
     def test_add_domain_proxy_file_smtp(self):
         self.setup_domain("example.com")
         s = Stockton("configure-send")
-        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234"
-        r = s.run(arg_str)
+        r = s.run("--mailserver=mail.example.com")
 
         proxy_addresses = testdata.create_file("foo.com", [
             "one@foo.com                foo@dest1.com",
@@ -163,10 +165,8 @@ class DomainTest(TestCase):
         )
         self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
 
-    def test_add_domain_proxy_file(self):
-        s = Stockton("configure-recv")
-        r = s.run("--mailserver=mail.example.com")
-
+    def test_add_domain_proxy_file_no_smtp(self):
+        s = Stockton("add-domain")
         proxy_domains = testdata.create_files({
             "foo.com": "\n".join([
                 "one@foo.com                foo@dest.com",
@@ -183,7 +183,6 @@ class DomainTest(TestCase):
         })
 
         for f in proxy_domains:
-            s = Stockton("add-domain")
             r = s.run("{} --proxy-file={}".format(f.name, f))
 
         contents = "\n".join([

@@ -43,10 +43,6 @@ class DomainKey(object):
 class DKIM(Interface):
 
     @property
-    def config(self):
-        return OpenDKIM(prototype_path=self.config_f.path)
-
-    @property
     def config_f(self):
         return Filepath(OpenDKIM.dest_path)
 
@@ -73,11 +69,35 @@ class DKIM(Interface):
     def __init__(self):
         self.bits = 2048
 
+    def config(self, path=OpenDKIM.dest_path):
+        return OpenDKIM(prototype_path=path)
+
     def base_configs(self):
         return [self.config_f]
 
     def domainkey(self, domain):
         return DomainKey(domain)
+
+    def set_ip(self, ip_addr):
+        """set the ip address into the hosts file"""
+        if not ip_addr:
+            raise ValueError("ip_addr is empty")
+
+        hosts = [
+            "127.0.0.1",
+            "::1",
+            "localhost",
+            "192.168.0.1/24",
+            ip_addr,
+        ]
+
+        trustedhosts_f = self.trustedhosts_f
+        trustedhosts_f.writelines(hosts)
+
+    def delete_domain(self, domain):
+        # remove dkim settings
+        self.signingtable_f.delete_lines(domain)
+        self.trustedhosts_f.delete_lines(domain)
 
     def add_domains(self):
         p = Postfix()
@@ -92,6 +112,7 @@ class DKIM(Interface):
 
         private_f = Filepath(keys_d, "{}.private".format(domain))
         txt_f = Filepath(keys_d, "{}.txt".format(domain))
+        dk = self.domainkey(domain)
         if not txt_f.exists() or gen_key:
             #cli.run("opendkim-genkey --domain={} --verbose --directory=\"{}\"".format(
             cli.run("opendkim-genkey --bits={} --domain={} --directory=\"{}\"".format(
@@ -107,8 +128,6 @@ class DKIM(Interface):
 
             txt_f = Filepath(keys_d, "default.txt")
             txt_f.rename("{}.txt".format(domain))
-
-            dk = self.domainkey(domain)
 
         if not keytable_f.contains(domain):
             keytable_f.append("{} {}:default:{}\n".format(
@@ -140,10 +159,18 @@ class DKIM(Interface):
 
     def is_running(self):
         ret = False
-        output = cli.run("/etc/init.d/opendkim status")
-        if re.search("opendkim\s+is\s+running", output, flags=re.I):
-            ret = True
+        try:
+            output = cli.run("/etc/init.d/opendkim status")
+            if re.search("opendkim\s+is\s+running", output, flags=re.I):
+                ret = True
+
+        except RuntimeError:
+            ret = False
+
         return ret
+
+    def exists(self):
+        return self.config_d.exists()
 
     def install(self):
         cli.package("opendkim", "opendkim-tools")
