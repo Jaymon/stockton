@@ -47,7 +47,7 @@ class FilepathTest(TestCase):
         self.assertFalse("foo" in f.lines())
 
     def test_checksum(self):
-        f = Filepath.create_temp("checksum")
+        f = Filepath.create_temp(testdata.get_uuid())
         checksum = f.checksum
         f.write("foo")
         checksum2 = f.checksum

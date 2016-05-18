@@ -315,7 +315,12 @@ class Postfix(Interface):
         cli.package("postfix")
 
     def uninstall(self):
-        self.stop()
+        try:
+            self.stop()
+        except cli.RunError as e:
+            if not e.is_missing():
+                raise
+
         cli.purge("postfix")
         self.config_d.delete()
 

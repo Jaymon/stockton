@@ -6,7 +6,7 @@ import testdata
 from stockton import cli
 from stockton.path import Filepath, Dirpath
 from stockton.concur.formats.postfix import Main, SMTPd, Master
-from stockton.interface import Postfix, Spam, DKIM
+from stockton.interface import Postfix, Spam, DKIM, SRS, SMTP
 
 from . import TestCase as BaseTestCase, Stockton
 
@@ -113,10 +113,17 @@ class ConfigureSRSTest(TestCase):
         s = Stockton("configure-srs")
         r = s.run("")
 
-        cli.running("postsrsd")
+        sr = SRS()
+        self.assertTrue(sr.is_running())
 
 
 class DomainTest(TestCase):
+#     @classmethod
+#     def setup_env(cls):
+#         dk = DKIM()
+#         dk.uninstall()
+#         super(DomainTest, cls).setup_env()
+
     def test_delete_domain(self):
         self.setup_domain("example.com")
         s = Stockton("configure_dkim")
@@ -136,7 +143,6 @@ class DomainTest(TestCase):
         self.assertFalse(df.contains("todelete.com"))
 
         opendkim_d = Dirpath("/etc/opendkim")
-        #keytable_f = Filepath(opendkim_d, "KeyTable")
         signingtable_f = Filepath(opendkim_d, "SigningTable")
         self.assertFalse(signingtable_f.contains("todelete.com"))
 
@@ -166,6 +172,11 @@ class DomainTest(TestCase):
         self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
 
     def test_add_domain_proxy_file_no_smtp(self):
+
+        # to make sure this works completely, we completely remove postfix
+        p = Postfix()
+        p.reset()
+
         s = Stockton("add-domain")
         proxy_domains = testdata.create_files({
             "foo.com": "\n".join([
@@ -209,9 +220,6 @@ class DomainTest(TestCase):
         self.assertTrue(re.search("^\s+hash:[/a-z]+?(bar|foo)\.com$", m["virtual_alias_maps"].val, re.M))
 
     def test_add_domains(self):
-        s = Stockton("configure-recv")
-        r = s.run("--mailserver=mail.example.com")
-
         s = Stockton("add-domains")
 
         # a file with different domains
@@ -265,52 +273,64 @@ class DomainTest(TestCase):
 
     def test_add_domain_domain(self):
         """pass in the domain and the proxy"""
-        s = Stockton("configure-recv")
-        r = s.run("--mailserver=mail.example.com")
         s = Stockton("configure-dkim")
         r = s.run()
 
+        p = Postfix()
+        dk = DKIM()
+
         s = Stockton("add-domain")
-        onef = Filepath("/etc/postfix/virtual/addresses/one.com")
-        twof = Filepath("/etc/postfix/virtual/addresses/two.com")
-        df = Filepath("/etc/postfix/virtual/domains")
+        one_f = p.address("one.com")
+        two_f = p.address("two.com")
+        domains_f = p.domains_f
 
         r = s.run("one.com --proxy-email=one@dest.com")
-        self.assertTrue(onef.contains("^@one.com"))
-        self.assertTrue(df.contains("one.com"))
+        self.assertTrue(one_f.contains("^@one.com"))
+        self.assertTrue(domains_f.contains("one.com"))
 
         r = s.run("two.com --proxy-email=two@dest.com")
-        self.assertTrue(onef.contains("^@one.com"))
-        self.assertTrue(df.contains("one.com"))
-        self.assertTrue(twof.contains("two@dest.com"))
-        self.assertTrue(df.contains("two.com"))
+        self.assertTrue(one_f.contains("^@one.com"))
+        self.assertTrue(domains_f.contains("one.com"))
+        self.assertTrue(two_f.contains("two@dest.com"))
+        self.assertTrue(domains_f.contains("two.com"))
 
-        opendkim_d = Dirpath("/etc/opendkim")
-        keytable_f = Filepath(opendkim_d, "KeyTable")
-        signingtable_f = Filepath(opendkim_d, "SigningTable")
-        trustedhosts_f = Filepath(opendkim_d, "TrustedHosts")
+        opendkim_d = dk.config_d
+        keytable_f = dk.keytable_f
+        signingtable_f = dk.signingtable_f
+        trustedhosts_f = dk.trustedhosts_f
 
-        self.assertEqual(2, keytable_f.lc())
-        self.assertEqual(2, signingtable_f.lc())
-        #self.assertTrue("*.example.com" in trustedhosts_f.lines())
+        self.assertTrue(keytable_f.contains("one.com"))
+        self.assertTrue(signingtable_f.contains("one.com"))
+        self.assertTrue(keytable_f.contains("two.com"))
+        self.assertTrue(signingtable_f.contains("two.com"))
         self.assertTrue("*.one.com" in trustedhosts_f.lines())
         self.assertTrue("*.two.com" in trustedhosts_f.lines())
 
     def test_add_domain_smtp(self):
-        self.setup_domain("example.com")
         s = Stockton("configure-send")
-        arg_str = "example.com --mailserver=mail.example.com --smtp-password=1234"
-        r = s.run(arg_str)
+        r = s.run("--mailserver=mail.example.com")
 
         s = Stockton("add-domain")
         r = s.run("one.com --proxy-email=one@dest.com --smtp-password=1234")
 
         cli.package("cyrus-clients-2.4") # for smtptest
         r = cli.run(
-            "echo QUIT | smtptest -a smtp@one.com -w 1234 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost",
-            capture_output=True
+            "echo QUIT | smtptest -a smtp@one.com -w 1234 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost"
         )
         self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
+
+        r = cli.run(
+            "echo QUIT | smtptest -a smtp@one.com -w 9876 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost"
+        )
+        self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
+
+        r = cli.run(
+            "echo QUIT | smtptest -a foo@one.com -w 1234 -t /etc/postfix/certs/mail.example.com.pem -p 587 localhost"
+        )
+        self.assertRegexpMatches(r, "535[^E]+Error:\s+authentication\s+failed")
+
+
+
 
 #         cli.package("cyrus-clients-2.4") # for smtptest
 #
@@ -344,10 +364,19 @@ class DomainTest(TestCase):
 
 
 class LockdownTest(TestCase):
+    def test_all(self):
+        s = Stockton("lockdown")
+        r = s.run("--mailserver=mail.example.com")
+
+        p = Postfix()
+        sp = Spam()
+        self.assertTrue(p.is_running())
+        self.assertTrue(p.helo_f.exists())
+        self.assertTrue(sp.is_running())
+
     def test_spam(self):
         s = Stockton("lockdown-spam")
         r = s.run()
-        #pout.v(r)
 
         sp = Spam()
         self.assertTrue(sp.is_running())
@@ -361,4 +390,86 @@ class LockdownTest(TestCase):
         p = Postfix()
         self.assertTrue(p.is_running())
         self.assertTrue(p.helo_f.exists())
+
+
+class InstallationTest(TestCase):
+    @classmethod
+    def setup_env(cls):
+        #super(ConfigureDKIMTest, cls).setup_env()
+        pass
+
+    def test_idempotence(self):
+        self.test_uninstall()
+        self.test_install()
+
+        p = Postfix()
+        dk = DKIM()
+        sp = Spam()
+        sm = SMTP()
+
+        main_hash = p.main_f.checksum
+        master_hash = p.master_f.checksum
+        dk_hash = dk.config_f.checksum
+        sp_config_hash = sp.config_f.checksum
+        sp_local_hash = sp.local_f.checksum
+        sm_config_hash = sm.config_f.checksum
+
+        self.test_install()
+
+        # just to make sure there is no caching issues
+        p = Postfix()
+        dk = DKIM()
+        sp = Spam()
+        sm = SMTP()
+
+        self.assertEqual(main_hash, p.main_f.checksum)
+        self.assertEqual(master_hash, p.master_f.checksum)
+        self.assertEqual(dk_hash, dk.config_f.checksum)
+        self.assertEqual(sp_config_hash, sp.config_f.checksum)
+        self.assertEqual(sp_local_hash, sp.local_f.checksum)
+        self.assertEqual(sm_config_hash, sm.config_f.checksum)
+
+    def test_uninstall(self):
+        s = Stockton("uninstall")
+        r = s.run()
+
+        p = Postfix()
+        self.assertFalse(p.is_running())
+        self.assertFalse(p.exists())
+
+        dk = DKIM()
+        self.assertFalse(dk.is_running())
+        self.assertFalse(dk.exists())
+
+        sr = SRS()
+        self.assertFalse(sr.is_running())
+
+        sp = Spam()
+        self.assertFalse(sp.is_running())
+        self.assertFalse(sp.exists())
+
+        sm = SMTP()
+        self.assertFalse(sm.exists())
+
+    def test_install(self):
+        s = Stockton("install")
+        arg_str = " ".join([
+            "--mailserver=mail.example.com",
+            "--smtp-password=1234",
+            "--proxy-email=d@dest.com",
+            "front.com"
+        ])
+        r = s.run(arg_str)
+
+        p = Postfix()
+        self.assertTrue(p.is_running())
+
+        dk = DKIM()
+        self.assertTrue(dk.is_running())
+
+        sr = SRS()
+        self.assertTrue(sr.is_running())
+
+        sp = Spam()
+        self.assertTrue(sp.is_running())
 

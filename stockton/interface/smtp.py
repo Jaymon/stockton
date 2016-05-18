@@ -39,6 +39,9 @@ class SMTP(object):
         sasldb2.chmod(400)
         sasldb2.chown("postfix")
 
+    def exists(self):
+        return self.db_f.exists()
+
     def install(self):
         cli.package("sasl2-bin", "libsasl2-modules")
 

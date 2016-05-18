@@ -575,9 +575,28 @@ def main_install(**kwargs):
 
 
 def main_uninstall():
-    # TODO -- this should completely remove all the stuff stockton installed, for
-    # the person that wants to start completely fresh
-    pass
+    """Completely remove the postfix server from"""
+    echo.h2("Uninstalling Mail Server")
+
+    echo.h3("Removing SpamAssassin")
+    sp = Spam()
+    sp.uninstall()
+
+    echo.h3("Removing SRS")
+    sr = SRS()
+    sr.uninstall()
+
+    echo.h3("Removing DKIM")
+    dk = DKIM()
+    dk.uninstall()
+
+    echo.h3("Removing SMTP")
+    sm = SMTP()
+    sm.uninstall()
+
+    echo.h3("Removing Postfix")
+    p = Postfix()
+    p.uninstall()
 
 
 def console():

@@ -70,6 +70,15 @@ class Spam(object):
             ret = False
         return ret
 
+    def exists(self):
+        ret = True
+        try:
+            self.stop()
+        except cli.RunError as e:
+            ret = not e.is_missing()
+        return ret
+
+
     def install(self):
         # make sure the packages are installed
         cli.package("spamassassin", "spamc")
@@ -81,6 +90,11 @@ class Spam(object):
             raise ValueError("Home directory {} does not exist".format(self.home_d))
 
     def uninstall(self):
-        self.stop()
+        try:
+            self.stop()
+        except cli.RunError as e:
+            if not e.is_missing():
+                raise
+
         cli.purge("spamassassin", "spamc")
 

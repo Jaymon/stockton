@@ -9,6 +9,45 @@ from captain import echo
 from .path import Filepath
 
 
+class RunError(RuntimeError):
+    # http://tldp.org/LDP/abs/html/exitcodes.html
+    def __init__(self, cmd, code, output, e=None):
+        self.cmd = cmd
+        self.code = code
+        self.output = output
+        self.e = e
+        message = "{} returned {} with output {}".format(
+            cmd,
+            code,
+            output
+        )
+        super(RunError, self).__init__(message)
+
+    def is_missing(self):
+        return self.code == 127
+
+    def is_general(self):
+        return self.code == 1
+
+    def is_misuse(self):
+        return self.code == 2
+
+    def is_permissions(self):
+        return self.code == 126
+
+    def is_bad_arg(self):
+        return self.code == 128
+
+    def is_terminated(self):
+        return self.code == 130
+
+    def search(self, regex):
+        ret = False
+        if re.search(regex, str(self), re.I):
+            ret = True
+        return ret
+
+
 def ip():
     #external_ip = cached_run("wget -qO- http://ifconfig.me/ip", ttl=10800)
     external_ip = cached_run("wget -qO- http://icanhazip.com", ttl=10800)
@@ -58,18 +97,10 @@ def run(cmd, capture_output=False, **process_kwargs):
         line = process.stdout.read()
         process.wait()
         if process.returncode > 0:
-            raise RuntimeError("{} returned {} with output {}".format(
-                cmd,
-                process.returncode, 
-                output
-            ))
+            raise RunError(cmd, process.returncode, output)
 
     except subprocess.CalledProcessError as e:
-        raise RuntimeError("{} returned {} with output {}".format(
-            cmd,
-            e.returncode,
-            e.output
-        ))
+        raise RunError(cmd, e.returncode, e.output, e)
 
     return output
 
@@ -94,20 +125,4 @@ def purge(*packages):
     for p in packages:
         #run("apt-get purge -y {}".format(p))
         run("apt-get -y remove --purge --auto-remove {}".format(p))
-
-
-# TODO -- I think this can probably be removed also
-def running(name):
-    pids = []
-    try:
-        # Looks like we can't do pgrep from here because python spawns a process that then
-        # shows up in the returned pid list :(
-        output = run("ps aux | grep {} | grep -v 'grep' | tr -s ' ' | cut -f2 -d' '".format(name))
-        #output = run("pgrep -f {}".format(name))
-        pids = map(int, filter(None, output.splitlines(False)))
-
-    except RuntimeError:
-        pass
-
-    return pids
 

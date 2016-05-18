@@ -10,37 +10,95 @@ from .base import Interface
 
 
 class DomainKey(object):
+
+    bits = 2048
+
+    @property
+    def keys_d(self):
+        dk = DKIM()
+        return dk.keys_d
+
     @property
     def txt_f(self):
-        dk = DKIM()
-        txt_f = Filepath(dk.keys_d, "{}.txt".format(self.domain))
+        txt_f = Filepath(self.keys_d, "{}.txt".format(self.domain))
         return txt_f
+
+    @property
+    def private_f(self):
+        private_f = Filepath(self.keys_d, "{}.private".format(self.domain))
+        return private_f
 
     @property
     def text(self):
         dkim_text = "{} {} {}".format(self.v, self.k, self.p)
         return dkim_text
 
+    @property
+    def subdomain(self):
+        m = re.match("^(\S+)", self.contents())
+        return "{}.{}".format(m.group(1), self.domain)
+
+    @property
+    def v(self):
+        mv = re.search("v=\S+", self.contents())
+        return mv.group(0)
+
+    @property
+    def k(self):
+        mk = re.search("k=\S+", self.contents())
+        mk.group(0)
+
+    @property
+    def p(self):
+        contents = self.contents()
+        mp = re.search("p=[^\"]+", contents)
+        mps = re.findall("\"(?!\S=)(\S+?)\"", contents)
+        return "".join([mp.group(0)] + mps)
+
     def __init__(self, domain):
         self.domain = domain
 
-        contents = self.txt_f.contents()
-        m = re.match("^(\S+)", contents)
-        self.subdomain = "{}.{}".format(m.group(1), domain)
+    def exists(self):
+        return self.txt_f.exists()
 
-        mv = re.search("v=\S+", contents)
-        mk = re.search("k=\S+", contents)
-        mp = re.search("p=[^\"]+", contents)
-        mps = re.findall("\"(?!\S=)(\S+?)\"", contents)
-        self.v = mv.group(0)
-        self.k = mk.group(0)
-        self.p = "".join([mp.group(0)] + mps)
+    def contents(self):
+        try:
+            contents = self._contents
+        except AttributeError:
+            contents = self._contents = self.txt_f.contents()
+        return contents
+
+    def create(self):
+        if self.exists(): return
+        self.generate()
+
+    def generate(self):
+        bits = self.bits
+        domain = self.domain
+        keys_d = self.keys_d
+        private_f = self.private_f
+        #cli.run("opendkim-genkey --domain={} --verbose --directory=\"{}\"".format(
+        cli.run("opendkim-genkey --bits={} --domain={} --directory=\"{}\"".format(
+            bits,
+            domain,
+            keys_d.path
+        ))
+
+        private_f = Filepath(keys_d, "default.private")
+        private_f.rename("{}.private".format(domain))
+        private_f.chmod(600)
+        private_f.chown("opendkim:opendkim")
+
+        txt_f = Filepath(keys_d, "default.txt")
+        txt_f.rename("{}.txt".format(domain)) # this makes self.txt_f and self.exists() work
 
     def __str__(self):
         return self.text
 
 
 class DKIM(Interface):
+
+    bits = 2048
 
     @property
     def config_f(self):
@@ -66,9 +124,6 @@ class DKIM(Interface):
     def trustedhosts_f(self):
         return Filepath(self.config_d, "TrustedHosts")
 
-    def __init__(self):
-        self.bits = 2048
-
     def config(self, path=OpenDKIM.dest_path):
         return OpenDKIM(prototype_path=path)
 
@@ -76,7 +131,9 @@ class DKIM(Interface):
         return [self.config_f]
 
     def domainkey(self, domain):
-        return DomainKey(domain)
+        domk = DomainKey(domain)
+        domk.bits = self.bits
+        return domk
 
     def set_ip(self, ip_addr):
         """set the ip address into the hosts file"""
@@ -105,29 +162,17 @@ class DKIM(Interface):
             self.add_domain(domain)
 
     def add_domain(self, domain, gen_key=False):
-        keys_d = self.keys_d
         keytable_f = self.keytable_f
         signingtable_f = self.signingtable_f
         trustedhosts_f = self.trustedhosts_f
 
-        private_f = Filepath(keys_d, "{}.private".format(domain))
-        txt_f = Filepath(keys_d, "{}.txt".format(domain))
         dk = self.domainkey(domain)
-        if not txt_f.exists() or gen_key:
-            #cli.run("opendkim-genkey --domain={} --verbose --directory=\"{}\"".format(
-            cli.run("opendkim-genkey --bits={} --domain={} --directory=\"{}\"".format(
-                self.bits,
-                domain,
-                keys_d.path
-            ))
+        private_f = dk.private_f
 
-            private_f = Filepath(keys_d, "default.private")
-            private_f.rename("{}.private".format(domain))
-            private_f.chmod(600)
-            private_f.chown("opendkim:opendkim")
-
-            txt_f = Filepath(keys_d, "default.txt")
-            txt_f.rename("{}.txt".format(domain))
+        if gen_key:
+            dk.generate()
+        else:
+            dk.create()
 
         if not keytable_f.contains(domain):
             keytable_f.append("{} {}:default:{}\n".format(

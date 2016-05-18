@@ -36,7 +36,11 @@ class SRS(Interface):
             self.start()
 
     def stop(self):
-        cli.run("stop postsrsd")
+        try:
+            cli.run("stop postsrsd")
+        except cli.RunError as e:
+            if not e.search("Unknown\s+instance"):
+                raise
 
     def is_running(self):
         ret = True
@@ -81,4 +85,8 @@ class SRS(Interface):
         cli.run("cmake -DCMAKE_INSTALL_PREFIX=/usr ../", cwd=build_d.path)
         cli.run("make", cwd=build_d.path)
         cli.run("make install", cwd=build_d.path)
+
+    def uninstall(self):
+        self.stop()
+
 

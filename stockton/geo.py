@@ -21,7 +21,7 @@ class IP(str):
             cls = type(self)
             if not hasattr(cls, "geo_db"):
                 type(self).geo_db = geoip2.database.Reader(self.geo_path)
-                self._geo_ip = cls.geo_db.city(self)
+            self._geo_ip = cls.geo_db.city(self)
 
         return self._geo_ip
 
