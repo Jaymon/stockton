@@ -455,7 +455,7 @@ def main_lockdown_spam():
         ("bayes_auto_learn", 1),
         ("skip_rbl_checks", 0),
         ("use_razor2", 0),
-        ("use_dcc", 0),
+        #("use_dcc", 0), # SA didn't seem to like this line
         ("use_pyzor", 0),
     )
     c.save()
@@ -475,7 +475,7 @@ def main_lockdown_spam():
 
     section = m.create_section("spamassassin unix - n n - - pipe")
     section.update(
-        "user=spamd argv=/usr/bin/spamc -f -e",
+        "user={} argv=/usr/bin/spamc -f -e".format(s.user),
         "/usr/sbin/sendmail -oi -f ${sender} ${recipient}",
     )
     m["spamassassin"] = section
