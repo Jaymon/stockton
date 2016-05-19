@@ -46,7 +46,7 @@ class DomainKey(object):
     @property
     def k(self):
         mk = re.search("k=\S+", self.contents())
-        mk.group(0)
+        return mk.group(0)
 
     @property
     def p(self):

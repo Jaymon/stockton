@@ -53,6 +53,18 @@ class DKIMTest(TestCase):
         self.assertFalse(d.config_f.exists())
         self.assertFalse(d.config_d.exists())
 
+    def test_txt_info(self):
+        d = DKIM()
+        d.bits = 8192
+        domain = "txtinfo.com"
+        d.add_domain(domain, gen_key=True)
+
+        dk = d.domainkey(domain)
+        self.assertEqual(d.bits, dk.bits)
+        self.assertNotEqual(None, dk.v)
+        self.assertNotEqual(None, dk.k)
+        self.assertNotEqual(None, dk.p)
+
     def test_domainkey(self):
         """Turns out really long domain keys were having problems being parsed"""
         d = DKIM()
