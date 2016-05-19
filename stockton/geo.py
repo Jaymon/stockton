@@ -56,7 +56,7 @@ class IP(str):
 #             shutil.copyfileobj(f_in, f_out)
 
         with gzip.open(gz_path, 'rb') as gzf:
-            with open(self.geo_path, "wb") as f:
+            with open(self.geo_path, "w+b") as f:
                 f.write(gzf.read())
 
 
