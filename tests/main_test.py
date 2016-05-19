@@ -451,6 +451,25 @@ class InstallationTest(TestCase):
         sm = SMTP()
         self.assertFalse(sm.exists())
 
+    def test_install_proxy_domains(self):
+        s = Stockton("install")
+        proxy_domains = testdata.create_files({
+            "pd1.com.txt": [
+                "one@pd1.com                foo@dest.com",
+                "",
+            ],
+            "pd2.com": [
+                "one@pd2.com                bar@dest.com",
+                "",
+            ],
+        })
+
+        r = s.run("--mailserver={} --proxy-domains={} --smtp-password=1234".format(
+            "mail.example.com",
+            proxy_domains
+        ))
+        # if there was no error than yay, it worked
+
     def test_install(self):
         s = Stockton("install")
         arg_str = " ".join([

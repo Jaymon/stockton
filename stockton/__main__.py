@@ -546,7 +546,7 @@ def main_check_domain(domain, records=None):
 
 
 @args(main_configure_recv, main_add_domains, main_add_domain)
-@arg('--proxy-domains', default="")
+@arg('--proxy-domains', type=Dirpath, default=None)
 def main_install(**kwargs):
     """Install, configure, and lockdown a postfix server"""
     main_prepare()
