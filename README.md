@@ -14,7 +14,9 @@ Stockton is an email proxy server, its goal is to easily allow you to forward on
 
 ## So how do I use it?
 
-Use pip:
+I run it on Ubuntu 14.04, so that's all that's been tested.
+
+Then you need to install it, use pip:
 
     $ sudo pip install stockton
 

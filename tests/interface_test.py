@@ -8,6 +8,7 @@ from . import TestCase as BaseTestCase
 #from stockton.path import Filepath, Dirpath
 #from stockton.interface.dkim import DKIM
 from stockton.interface import Postfix, DKIM, SRS, Spam
+from stockton.path import Filepath, Dirpath
 
 
 class TestCase(BaseTestCase):
@@ -42,6 +43,19 @@ class PostfixTest(TestCase):
         p.uninstall()
         self.assertFalse(p.config_d.exists())
         self.assertFalse(p.is_running())
+
+    def test_stray_output_files(self):
+        """make sure the typescript problem is no longer a problem"""
+        # https://github.com/Jaymon/stockton/issues/26
+        f = Filepath(os.getcwd(), "typescript")
+
+        f.delete()
+        self.assertFalse(f.exists())
+
+        p = Postfix()
+        self.assertTrue(p.is_running())
+
+        self.assertFalse(f.exists())
 
 
 class DKIMTest(TestCase):

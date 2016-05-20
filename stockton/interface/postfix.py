@@ -241,27 +241,6 @@ class Postfix(Interface):
     def main(self, path=Main.dest_path):
         return Main(prototype_path=path)
 
-#     def main(self, *path):
-#         """return the main config
-# 
-#         *path -- string -- pass in "" to not load any prototype, pass in a path
-#             to load that path as the prototype, pass in nothing to get the live
-#             main.cf file as the prototype
-# 
-#         return -- Main
-#         """
-#         if path:
-#             if path[0]:
-#                 m = Main(prototype_path=path[0])
-# 
-#             else:
-#                 m = Main()
-# 
-#         else:
-#             m = Main(prototype_path=Main.dest_path)
-# 
-#         return m
-
     def master(self, path=Master.dest_path):
         path = str(path)
         return Master(prototype_path=path)
@@ -275,7 +254,7 @@ class Postfix(Interface):
     def _run(self, cmd):
         """this wraps the normal command in a command that will make sure it works"""
         #return cli.run('script -c "{}" -q STDOUT --return'.format(cmd))
-        return cli.run('script -c "{}" -q --return'.format(cmd))
+        return cli.run('script -c "{}" -q /dev/null --return'.format(cmd))
 
     def start(self):
         try:
