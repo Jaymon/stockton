@@ -171,6 +171,35 @@ class DomainTest(TestCase):
         )
         self.assertRegexpMatches(r, "235[^A]+Authentication\s+successful")
 
+    def test_update_domain_proxy(self):
+        # to make sure this works completely, we completely remove postfix
+        p = Postfix()
+        p.reset()
+
+        f = testdata.create_file("foo.com", [
+            "one@foo.com                foo@dest.com",
+            "",
+        ])
+
+        s = Stockton("add-domain")
+        r = s.run("{} --proxy-file={}".format(f.name, f))
+        m = Main(prototype_path=Main.dest_path)
+        proxy_path = re.search("^hash:([/a-z]+?foo\.com)$", m["virtual_alias_maps"].val, re.M).group(1)
+        proxy_path_f = Filepath(proxy_path)
+        self.assertTrue("one@foo.com" in proxy_path_f.contents())
+
+        s = Stockton("update-domain-proxy")
+        f = testdata.create_file("foo.com", [
+            "two@bar.com                bar@dest.com",
+            "",
+        ])
+        r = s.run("{} --proxy-file={}".format(f.name, f))
+        m = Main(prototype_path=Main.dest_path)
+        proxy_path = re.search("^hash:([/a-z]+?foo\.com)$", m["virtual_alias_maps"].val, re.M).group(1)
+        proxy_path_f = Filepath(proxy_path)
+        self.assertFalse("one@foo.com" in proxy_path_f.contents())
+        self.assertTrue("two@bar.com" in proxy_path_f.contents())
+
     def test_add_domain_proxy_file_no_smtp(self):
 
         # to make sure this works completely, we completely remove postfix

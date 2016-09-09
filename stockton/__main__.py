@@ -259,16 +259,13 @@ def main_delete_domain(domain):
     help='smtp password for sending emails, will be used for each domain in proxy-domains'
 )
 def main_add_domains(proxy_domains, smtp_username, smtp_password):
-    """add-domains
-
-    Given a directory containing domain alias configuration files, corresponding to
+    """Given a directory containing domain alias configuration files, corresponding to
     the format specified in
 
     http://www.postfix.org/virtual.5.html
 
     Add each of the domains to Postfix, if smtp-password is given, then also set
-    up the virtual domain to be able to send email.
-    """
+    up the virtual domain to be able to send email."""
     p = Postfix()
     domains = {}
     for proxy_f in proxy_domains.files():
@@ -290,13 +287,26 @@ def main_add_domains(proxy_domains, smtp_username, smtp_password):
 @arg('domain', nargs="?", help='The email domain (eg, example.com)')
 @arg('--proxy-file', default="", help='The file containing domain addresses to proxy emails')
 @arg('--proxy-email', default="", help='The final destination email address')
+def main_update_domain_proxy(domain, proxy_file, proxy_email):
+    """don't do anything but update the virtual address file with the current in/out email
+    addresses. If you need to do anything else, like set dkim or smtp passwords, use
+    add-domain"""
+    p = Postfix()
+
+    if not domain:
+        domain = p.autodiscover_domain(proxy_file)
+
+    p.add_domain(domain, proxy_file, proxy_email)
+    p.restart()
+
+
+@arg('domain', nargs="?", help='The email domain (eg, example.com)')
+@arg('--proxy-file', default="", help='The file containing domain addresses to proxy emails')
+@arg('--proxy-email', default="", help='The final destination email address')
 @arg('--smtp-username', default="smtp", help='smtp username for sending emails')
 @arg('--smtp-password', default="", help='smtp password for sending emails')
 def main_add_domain(domain, proxy_file, proxy_email, smtp_username, smtp_password):
-    """add-domain
-
-    add one virtual domain to postfix
-    """
+    """add one virtual domain to postfix"""
     p = Postfix()
 
     if not domain:

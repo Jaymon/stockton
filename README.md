@@ -52,6 +52,10 @@ Now you can add your new `super-cool-domain.org` to your mailserver using:
 
 And Stockton will add that domain to your mailserver and let you know what dns changes you need to make to make your new domain work.
 
+If you ever need to update your email list, just update your file and run:
+
+    $ stockton update-domain-proxy --proxy-file=/path/to/domain.config
+
 
 ## FAQ
 
@@ -61,7 +65,7 @@ Good question, I'm glad you asked, turns out I've been a little liberal with the
 
 So when the time came to finally, (finally!) update my aging mailserver, I had trouble finding a hosted solution that worked for my particular use case (400+ unique email addresses, going to a few dozen unique email addresses) and Stockton was born.
 
-Stockton is designed for my specific use case, multiple domains, all forwarding to different email addresses, if you have this use case, feel free to give it a spin.
+Stockton is designed for my specific use case, multiple domains, all forwarding to different email addresses, if you have this use case, feel free to give it a spin, if not, then I'd use Gmail.
 
 
 ### Why the name Stockton?
