@@ -210,6 +210,8 @@ class Postfix(Interface):
             f = Filepath(proxy_file)
             domain_f = self.address(domain)
             f.copy(domain_f)
+            # posfix check -> gives warning when world or group writeable
+            f.chmod(644)
             new_domains.add(domain)
 
         elif proxy_email:
