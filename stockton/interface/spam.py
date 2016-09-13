@@ -10,6 +10,21 @@ from ..concur.formats.spamassassin import SpamAssassin, Local
 
 
 class Spam(object):
+    """Installs and adds configuration hooks for SpamAssassin
+
+    http://wiki.apache.org/spamassassin/ImproveAccuracy
+    https://aikar.co/2014/09/05/filtering-spam-forwarding-email-postfixspamassassin/
+    """
+
+    perl_packages = [
+        "libgeo-ip-perl",
+        "libdigest-sha-perl",
+        "libdbi-perl",
+        "libio-socket-ip-perl",
+        "libencode-detect-perl",
+        "libnet-patricia-perl",
+        "libmail-dkim-perl",
+    ]
 
     @property
     def user(self):
@@ -78,10 +93,17 @@ class Spam(object):
             ret = not e.is_missing()
         return ret
 
+    def lint(self):
+        """Return the output from checking SA's configuration"""
+        return cli.run("spamassassin -D --lint")
 
     def install(self):
         # make sure the packages are installed
         cli.package("spamassassin", "spamc")
+
+        # these help make SA work better
+        cli.package("libgeoip-dev", "libssl-dev") # we don't remove these in uninstall()
+        cli.package(*self.perl_packages)
 
         # add the spam user
         # update 4-16-2016 let's just use debian-spamd and /var/lib/spamassassin
@@ -97,4 +119,5 @@ class Spam(object):
                 raise
 
         cli.purge("spamassassin", "spamc")
+        cli.purge(*self.perl_packages)
 

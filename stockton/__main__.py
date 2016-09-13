@@ -467,6 +467,8 @@ def main_lockdown_spam():
         ("use_razor2", 0),
         #("use_dcc", 0), # SA didn't seem to like this line
         ("use_pyzor", 0),
+        ("blacklist_from", "*.stream"),
+        ("score", "USER_IN_BLACKLIST 4.0"),
     )
     c.save()
 

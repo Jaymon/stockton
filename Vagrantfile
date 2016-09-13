@@ -6,24 +6,21 @@ Vagrant.configure("2") do |config|
   # options are documented and commented below. For a complete reference,
   # please see the online documentation at vagrantup.com.
 
+  # https://www.vagrantup.com/docs/virtualbox/configuration.html
+  config.vm.provider "virtualbox" do |v|
+    v.name = "Stockton"
+  end
+
   # Every Vagrant virtual environment requires a box to build off of.
   config.vm.box = "trusty64-vanilla"
   config.vm.box_url = "https://dl.dropboxusercontent.com/u/11847976/trusty64-vanilla.box"
 
   config.vm.synced_folder ENV["FO_OPS_DIR"], ::File.join("", "ops")
 
-  # download the chef bootstrap file if it doesn't already exist
-  require 'tmpdir'
-  chef_bootstrap = ::File.join(::Dir.tmpdir, "chef-bootstrap.sh")
-  if !::File.exists?(chef_bootstrap)
-    require 'open-uri'
-    download = open('https://raw.githubusercontent.com/Jaymon/vagrant-bootstrap/master/chef-bootstrap.sh')
-    ::IO.copy_stream(download, chef_bootstrap)
-  end
-  config.vm.provision :shell, :path => chef_bootstrap
-
   config.vm.provision :chef_solo do |chef|
     chef.cookbooks_path = ::File.join(ENV["FO_OPS_DIR"], "chef", "cookbooks")
+    chef.version = "12.13.37"
+
     #chef.roles_path = "../my-recipes/roles"
     #chef.data_bags_path = "../my-recipes/data_bags"
 

@@ -73,6 +73,9 @@ def cached_run(cmd, ttl=3600, **process_kwargs):
 
 
 def run(cmd, capture_output=False, **process_kwargs):
+    """
+    capture_output -- DEPRECATED -- this always returns output now
+    """
     # we will allow overriding of these values
     echo.out("< {}", cmd)
 
