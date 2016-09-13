@@ -80,6 +80,19 @@ def main_configure_recv(mailserver):
         ("smtp_tls_session_cache_database", "btree:${data_directory}/smtp_scache"),
     ])
 
+    # Queue tuning from http://www.postfix.org/TUNING_README.html#hammer
+    settings.extend([
+        # How long a MAILER-DAEMON message stays in the queue before it is considered
+        # undeliverable. Specify 0 for mail that should be tried only once.
+        ("bounce_queue_lifetime", 0),
+        # The minimal amount of time a message won't be looked at
+        ("minimal_backoff_time", "3600s"),
+        # The maximal amount of time a message won't be looked at after a delivery failure
+        ("maximal_backoff_time ", "86400s"),
+        # How often the queue manager scans the queue for deferred mail.
+        ("queue_run_delay", "3600s"),
+    ])
+
     m = p.main()
     m.update(*settings)
     m.save()
