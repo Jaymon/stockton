@@ -25,6 +25,7 @@ class Spam(object):
         "libencode-detect-perl",
         "libnet-patricia-perl",
         "libmail-dkim-perl",
+        "libmail-spf-perl",
     ]
 
     @property
