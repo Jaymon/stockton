@@ -7,6 +7,7 @@ from .postfix import Postfix
 from ..path import Filepath, Dirpath
 #from ..concur.formats.opendkim import OpenDKIM
 from ..concur.formats.spamassassin import SpamAssassin, Local
+from ..concur.formats.generic import EqualConfig
 
 
 class Spam(object):
@@ -88,7 +89,8 @@ class Spam(object):
     def exists(self):
         ret = True
         try:
-            self.stop()
+            #self.stop()
+            cli.run("/etc/init.d/spamassassin status")
         except cli.RunError as e:
             ret = not e.is_missing()
         return ret
@@ -120,4 +122,61 @@ class Spam(object):
 
         cli.purge("spamassassin", "spamc")
         cli.purge(*self.perl_packages)
+
+
+class Razor(object):
+    """Installs razor
+
+    https://digitalenvelopes.email/blog/debian-integrate-razor-spamassassin/
+
+    to test --
+        razor-check -d < /usr/share/doc/spamassassin/examples/sample-spam.txt
+        spamassassin -D razor2 2>&1 < /usr/share/doc/spamassassin/examples/sample-spam.txt
+    """
+    @property
+    def home_d(self):
+        return Dirpath("/etc/razor")
+
+    @property
+    def config_f(self):
+        return Filepath(self.home_d, "razor-agent.conf")
+
+    def config(self, path=""):
+        if not path:
+            path = self.config_f
+        path = str(path)
+        dest_path = str(self.config_f)
+        return EqualConfig(dest_path=dest_path, prototype_path=path)
+
+    def start(self):
+        pass
+
+    def restart(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def is_running(self):
+        return False
+
+    def exists(self):
+        ret = True
+        try:
+            cli.run("which razor-admin")
+        except cli.RunError as e:
+            ret = not e.is_missing()
+        return ret
+
+    def install(self):
+        # make sure the packages are installed
+        cli.package("razor")
+
+        cli.run("razor-admin -d -home=\"{}\" -create".format(self.home_d))
+        cli.run("razor-admin -d -home=\"{}\" -register".format(self.home_d))
+        # razor-admin -d -home=/etc/razor -create
+        # razor-admin -d -home=/etc/razor -register
+
+    def uninstall(self):
+        cli.purge("razor")
 

@@ -17,6 +17,9 @@ Vagrant.configure("2") do |config|
 
   config.vm.synced_folder ENV["FO_OPS_DIR"], ::File.join("", "ops")
 
+  config.vm.network :forwarded_port, guest: 2703, host: 2703
+
+
   config.vm.provision :chef_solo do |chef|
     chef.cookbooks_path = ::File.join(ENV["FO_OPS_DIR"], "chef", "cookbooks")
     chef.version = "12.13.37"

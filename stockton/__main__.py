@@ -15,21 +15,22 @@ from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.concur.formats.generic import SpaceConfig
 from stockton.path import Dirpath, Filepath, Sentinal
 
-from stockton.interface import SMTP, Postfix, DKIM, Spam, SRS
+from stockton.interface import SMTP, Postfix, DKIM, Spam, Razor, SRS
 
 
 def main_prepare():
     """Get a server ready to configure postfix by installing postfix"""
-    echo.h2("Installing Postfix")
-
-    with Sentinal.check("apt-get-update") as s:
-        if not s:
-            cli.run("apt-get update")
-
-    #cli.run("apt-get -y install --no-install-recommends postfix")
-    #cli.run("debconf-set-selections <<< \"postfix postfix/main_mailer_type string 'No configuration'\"")
     p = Postfix()
-    p.install()
+    if not p.exists():
+        echo.h2("Installing Postfix")
+
+        with Sentinal.check("apt-get-update") as s:
+            if not s:
+                cli.run("apt-get update")
+
+        #cli.run("apt-get -y install --no-install-recommends postfix")
+        #cli.run("debconf-set-selections <<< \"postfix postfix/main_mailer_type string 'No configuration'\"")
+        p.install()
 
 
 @arg('--mailserver', help='The domain mailserver (eg, mail.example.com)')
@@ -40,6 +41,7 @@ def main_configure_recv(mailserver):
     emails you should use add-domain(s)
     """
     # http://www.postfix.org/VIRTUAL_README.html
+    main_prepare()
 
     echo.h2("Configuring Postfix to receive emails")
 
@@ -507,6 +509,30 @@ def main_lockdown_spam():
     m.save()
 
     p.restart()
+    s.restart()
+
+
+def main_lockdown_razor():
+    """Enable razor2 for SpamAssassin"""
+    s = Spam()
+    if not s.exists():
+        raise RuntimeError("SpamAssassin is not installed")
+
+    c = s.local()
+    c.update(
+        ("use_razor2", 1),
+    )
+    c.save()
+
+    r = Razor()
+    r.install()
+
+    c = r.config()
+    c.update(
+        ("razorhome", str(r.home_d)),
+    )
+    c.save()
+
     s.restart()
 
 

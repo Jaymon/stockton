@@ -6,7 +6,7 @@ import testdata
 from stockton import cli
 from stockton.path import Filepath, Dirpath
 from stockton.concur.formats.postfix import Main, SMTPd, Master
-from stockton.interface import Postfix, Spam, DKIM, SRS, SMTP
+from stockton.interface import Postfix, Spam, Razor, DKIM, SRS, SMTP
 
 from . import TestCase as BaseTestCase, Stockton
 
@@ -419,6 +419,24 @@ class LockdownTest(TestCase):
         p = Postfix()
         self.assertTrue(p.is_running())
         self.assertTrue(p.helo_f.exists())
+
+    def test_razor(self):
+        sp = Spam()
+        sp.uninstall()
+        r = Razor()
+        r.uninstall()
+
+        self.setup_domain("example.com")
+
+        with self.assertRaises(RuntimeError):
+            s = Stockton("lockdown-razor")
+            r = s.run()
+
+        s = Stockton("lockdown-spam")
+        r = s.run()
+
+        s = Stockton("lockdown-razor")
+        r = s.run()
 
 
 class InstallationTest(TestCase):

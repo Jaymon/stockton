@@ -7,7 +7,7 @@ from . import TestCase as BaseTestCase
 #from stockton.dns import Domain
 #from stockton.path import Filepath, Dirpath
 #from stockton.interface.dkim import DKIM
-from stockton.interface import Postfix, DKIM, SRS, Spam
+from stockton.interface import Postfix, DKIM, SRS, Spam, Razor
 from stockton.path import Filepath, Dirpath
 
 
@@ -113,6 +113,9 @@ class SRSTest(TestCase):
 
 class SpamTest(TestCase):
     service_class = Spam
+
+#     def test_razor(self):
+#         r = Razor()
 
     def test_lifecycle(self):
         sp = Spam()
