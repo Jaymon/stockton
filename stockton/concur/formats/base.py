@@ -163,7 +163,7 @@ class ConfigBase(object):
 
         else:
             if k in self.sections:
-                raise ValueError("you cannot modify sections using dict string notation")
+                raise ValueError("you cannot set a section with a string, use a section class")
 
             line_numbers = []
 
@@ -196,6 +196,22 @@ class ConfigOption(ConfigLine):
     def is_valid(self):
         return bool(self.name)
 
+    def _split(self, line):
+        divider = self.config.option_divider
+        name = ""
+        val = ""
+        if self.config.option_name_regexes:
+            for regex in self.config.option_name_regexes:
+                m = re.match(regex, line)
+                if m:
+                    name = m.group(0)
+                    _, val = re.split("\s*{}\s*".format(divider), line[m.end(0):], 1)
+
+        if not name:
+            name, val = re.split("\s*{}\s*".format(divider), line, 1)
+
+        return name, val
+
     def _parse(self, fp):
         line = fp.line
         name = ""
@@ -205,11 +221,11 @@ class ConfigOption(ConfigLine):
         divider = self.config.option_divider
 
         if re.match("^[^{}]\S+".format(commenters), line): # name = val
-            name, val = re.split("\s*{}\s*".format(divider), line, 1)
+            name, val = self._split(line)
 
         elif re.match("^[{}]\s*\S+\s*{}".format(commenters, divider), line): # # name = val
             l = re.sub("^[{}]\s*".format(commenters), "", line)
-            name, val = re.split("\s*{}\s*".format(divider), l, 1)
+            name, val = self._split(l)
 
         bits = re.split("\s[{}]\s*".format(commenters), val, 1)
         val = bits[0]
@@ -347,6 +363,10 @@ class Config(ConfigBase):
     commenters = "#"
 
     option_divider = "="
+
+    option_name_regexes = []
+    """If you need to do some custom name matching of the option, these get ran
+    before the generic splitting on option_divider"""
 
     line_class = ConfigLine
 

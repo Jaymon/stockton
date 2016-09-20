@@ -21,4 +21,7 @@ class SpamAssassin(generic.EqualConfig):
 
 class Local(generic.SpaceConfig):
     dest_path = "/etc/spamassassin/local.cf"
+    option_name_regexes = [
+        "^score\s+[A-Z0-9_]+"
+    ]
 

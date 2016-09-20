@@ -483,7 +483,7 @@ def main_lockdown_spam():
         #("use_dcc", 0), # SA didn't seem to like this line
         ("use_pyzor", 0),
         ("blacklist_from", "*.stream"),
-        ("score", "USER_IN_BLACKLIST 4.0"),
+        ("score USER_IN_BLACKLIST", "4.0"),
     )
     c.save()
 
@@ -521,6 +521,9 @@ def main_lockdown_razor():
     c = s.local()
     c.update(
         ("use_razor2", 1),
+        ("score RAZOR2_CF_RANGE_51_100", "5.0"),
+        ("score RAZOR2_CF_RANGE_E8_51_100", "5.0"),
+        ("score RAZOR2_CHECK", "3.0"),
     )
     c.save()
 

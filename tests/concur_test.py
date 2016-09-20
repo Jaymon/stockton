@@ -1,4 +1,5 @@
 from unittest import TestCase
+import re
 
 import testdata
 
@@ -57,6 +58,69 @@ def tearDownModule():
 
 
 class SpaceTest(TestCase):
+    def test_multi_word_name(self):
+        """There are certain cases where you can have a certain keyword multiple times
+
+            foo NAME VALUE
+            foo NAME_2 VALUE_2
+            ...
+            foo NAME_N VALUE_N
+
+        and so you want the parser to be smart enough to be able to seperate these
+        """
+        path = testdata.create_file("multi_word.conf", [
+            "foo NAME VALUE",
+            "foo NAME_2 VALUE_2",
+            "foo NAME_N VALUE_N",
+        ])
+
+        class FooConfig(generic.SpaceConfig):
+            option_name_regexes = [
+                "^foo\s+[A-Z0-9_]+"
+            ]
+
+        c = FooConfig(prototype_path=path)
+        c.update(
+            ("foo NAME", 1),
+            ("foo NAME_2", 2),
+            ("foo NAME_N", 3),
+        )
+        contents = "\n".join([
+            "foo NAME                1",
+            "foo NAME_2              2",
+            "foo NAME_N              3",
+        ])
+        self.assertEqual(contents, str(c))
+        return
+
+
+
+
+
+        c = FooConfig(prototype_path=path)
+        c["foo NAME"] = 1
+        c["foo NAME_2"] = 2
+        c["foo NAME_N"] = 3
+
+        contents = "\n".join([
+            "foo NAME                1",
+            "foo NAME_2              2",
+            "foo NAME_N              3",
+        ])
+        self.assertEqual(contents, str(c))
+
+        path = testdata.create_file("multi_word.conf", [
+            "foo NAME_2 VALUE_2",
+            "some_bah this is a non foo value",
+            "foo NAME_N VALUE_N",
+        ])
+
+        c = FooConfig(prototype_path=path)
+        self.assertTrue(c["foo NAME_2"])
+        self.assertTrue(c["foo NAME_N"])
+        self.assertTrue(c["some_bah"])
+        self.assertEqual("this is a non foo value", c["some_bah"].val)
+
     def test__parse(self):
         path = testdata.create_file("space.conf", "\n".join([
             "# Log to syslog",

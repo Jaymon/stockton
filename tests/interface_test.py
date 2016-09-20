@@ -111,11 +111,21 @@ class SRSTest(TestCase):
     service_class = SRS
 
 
+class RazorTest(BaseTestCase):
+    def test_razor(self):
+        sp = Spam()
+        c = sp.local()
+        c.update(
+            ("score", "RAZOR2_CF_RANGE_51_100 5.0"),
+            ("score", "RAZOR2_CF_RANGE_E8_51_100 5.0"),
+            ("score", "RAZOR2_CHECK 3.0"),
+        )
+        pout.v(c)
+        r = Razor()
+
+
 class SpamTest(TestCase):
     service_class = Spam
-
-#     def test_razor(self):
-#         r = Razor()
 
     def test_lifecycle(self):
         sp = Spam()
