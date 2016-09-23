@@ -15,7 +15,7 @@ from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.concur.formats.generic import SpaceConfig
 from stockton.path import Dirpath, Filepath, Sentinal
 
-from stockton.interface import SMTP, Postfix, DKIM, Spam, Razor, SRS
+from stockton.interface import SMTP, Postfix, DKIM, Spam, Razor, Pyzor, SRS
 
 
 def main_prepare():
@@ -245,6 +245,52 @@ def main_configure_srs():
     p.restart()
 
 
+def main_configure_razor():
+    """Enable razor2 for SpamAssassin"""
+    s = Spam()
+    if not s.exists():
+        raise RuntimeError("SpamAssassin is not installed")
+
+    c = s.local()
+    c.update(
+        ("use_razor2", 1),
+        ("score RAZOR2_CF_RANGE_51_100", "5.0"),
+        ("score RAZOR2_CF_RANGE_E8_51_100", "5.0"),
+        ("score RAZOR2_CHECK", "3.0"),
+    )
+    c.save()
+
+    r = Razor()
+    r.install()
+
+    c = r.config()
+    c.update(
+        ("razorhome", str(r.home_d)),
+    )
+    c.save()
+
+    s.restart()
+
+
+def main_configure_pyzor():
+    """Enable pyzor for SpamAssassin"""
+    s = Spam()
+    if not s.exists():
+        raise RuntimeError("SpamAssassin is not installed")
+
+    c = s.local()
+    c.update(
+        ("use_pyzor", 1),
+        ("score PYZOR_CHECK", 5.0),
+    )
+    c.save()
+
+    p = Pyzor()
+    p.install()
+
+    s.restart()
+
+
 @arg('domain', help='The email domain to remove (eg, example.com)')
 def main_delete_domain(domain):
     """remove a domain from the server"""
@@ -470,11 +516,13 @@ def main_lockdown_spam():
     )
     c.save()
 
+    required_score = 4.0
+
     c = s.local()
     c.update(
         ("rewrite_header", "Subject SPAM _SCORE_ *"),
         ("report_safe", 0),
-        ("required_score", 5.0),
+        ("required_score", 4.0),
         ("use_bayes", 1),
         ("use_bayes_rules", 1),
         ("bayes_auto_learn", 1),
@@ -483,7 +531,18 @@ def main_lockdown_spam():
         #("use_dcc", 0), # SA didn't seem to like this line
         ("use_pyzor", 0),
         ("blacklist_from", "*.stream"),
-        ("score USER_IN_BLACKLIST", "4.0"),
+
+        # score values are in /usr/share/spamassassin/50_scores.cf
+        ("score USER_IN_BLACKLIST", required_score),
+        ("score URIBL_BLACK", required_score * 0.8),
+        ("score HTML_FONT_LOW_CONTRAST", required_score * 0.5),
+        ("score BAYES_20", required_score * 0.2),
+        ("score BAYES_40", required_score * 0.4),
+        ("score BAYES_50", required_score * 0.5),
+        ("score BAYES_60", required_score * 0.6),
+        ("score BAYES_80", required_score * 0.8),
+        ("score BAYES_95", required_score * 0.95),
+        ("score BAYES_99", required_score * 0.99),
     )
     c.save()
 
@@ -511,32 +570,6 @@ def main_lockdown_spam():
     p.restart()
     s.restart()
 
-
-def main_lockdown_razor():
-    """Enable razor2 for SpamAssassin"""
-    s = Spam()
-    if not s.exists():
-        raise RuntimeError("SpamAssassin is not installed")
-
-    c = s.local()
-    c.update(
-        ("use_razor2", 1),
-        ("score RAZOR2_CF_RANGE_51_100", "5.0"),
-        ("score RAZOR2_CF_RANGE_E8_51_100", "5.0"),
-        ("score RAZOR2_CHECK", "3.0"),
-    )
-    c.save()
-
-    r = Razor()
-    r.install()
-
-    c = r.config()
-    c.update(
-        ("razorhome", str(r.home_d)),
-    )
-    c.save()
-
-    s.restart()
 
 
 @args(main_lockdown_postfix, main_lockdown_spam)

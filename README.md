@@ -52,7 +52,7 @@ Now you can add your new `super-cool-domain.org` to your mailserver using:
 
 And Stockton will add that domain to your mailserver and let you know what dns changes you need to make to make your new domain work.
 
-If you ever need to update your email list, just update your file and run:
+If you ever need to update your emails list, just update your file and run:
 
     $ stockton update-domain-proxy --proxy-file=/path/to/domain.config
 

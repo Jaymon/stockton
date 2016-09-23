@@ -113,6 +113,7 @@ class SRSTest(TestCase):
 
 class RazorTest(BaseTestCase):
     def test_razor(self):
+        raise self.skipTest("this test doesn't do anything but I used it for testing")
         sp = Spam()
         c = sp.local()
         c.update(
@@ -120,7 +121,6 @@ class RazorTest(BaseTestCase):
             ("score", "RAZOR2_CF_RANGE_E8_51_100 5.0"),
             ("score", "RAZOR2_CHECK 3.0"),
         )
-        pout.v(c)
         r = Razor()
 
 

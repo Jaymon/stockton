@@ -181,3 +181,44 @@ class Razor(object):
     def uninstall(self):
         cli.purge("razor")
 
+
+class Pyzor(object):
+    """Installs pyzor
+
+    https://digitalenvelopes.email/blog/debian-integrate-pyzor-spamassassin/
+    """
+    def start(self):
+        pass
+
+    def restart(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def is_running(self):
+        return False
+
+    def ping(self):
+        output = cli.run("pyzor ping")
+        return "200" in output
+
+    def exists(self):
+        ret = True
+        try:
+            cli.run("which pyzor")
+        except cli.RunError as e:
+            ret = not e.is_missing()
+        return ret
+
+    def install(self):
+        cli.package("pyzor")
+
+        cli.run("pyzor discover")
+
+        if not self.ping():
+            raise IOError("Pyzor ping was unsuccessful")
+
+    def uninstall(self):
+        cli.purge("razor")
+
