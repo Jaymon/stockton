@@ -526,6 +526,7 @@ def main_lockdown_spam():
         ("use_bayes", 1),
         ("use_bayes_rules", 1),
         ("bayes_auto_learn", 1),
+        ("bayes_auto_learn_threshold_spam", 6.0),
         ("skip_rbl_checks", 0),
         ("use_razor2", 0),
         #("use_dcc", 0), # SA didn't seem to like this line
