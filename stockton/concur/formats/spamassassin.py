@@ -25,3 +25,15 @@ class Local(generic.SpaceConfig):
         "^score\s+[A-Z0-9_]+"
     ]
 
+    def update_option(self, option, v):
+        if option.name == "loadplugin":
+            ret = False
+            if option.val == v:
+                option.val = v
+                ret = True
+
+        else:
+            ret = super(Local, self).update_option(option, v)
+
+        return ret
+

@@ -53,6 +53,18 @@ class ConfigBase(object):
         option.name = k
         return option
 
+    def update_option(self, option, v):
+        """This is called for every option that already exists and is about to be
+        updated, its purpose is to allow child classes to override it and do custom
+        setting
+
+        :param option: the option instance
+        :param v: the value the option is going to be updated to
+        :returns: boolean True if option was updated, False if not
+        """
+        option.val = v
+        return True
+
     def update(self, *args, **kwargs):
         for body in itertools.chain(args, kwargs.items()):
             if isinstance(body, basestring):
@@ -171,9 +183,18 @@ class ConfigBase(object):
                 line_numbers = self.options[k]
 
             if len(line_numbers) > 0:
+                updated = False
                 for line_number in line_numbers:
                     option = self.lines[line_number]
+                    updated |= self.update_option(option, v)
+                    #option.val = v
+
+                # if update_option never returned True, then assume option is a
+                # new option and add it
+                if not updated:
+                    option = self.__missing__(k)
                     option.val = v
+
 
             else:
                 option = self.__missing__(k)

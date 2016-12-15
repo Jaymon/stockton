@@ -6,6 +6,7 @@ import testdata
 from stockton.concur.formats.base import ConfigFile, Config, ConfigSection
 from stockton.concur.formats import postfix
 from stockton.concur.formats import generic
+from stockton.concur.formats import spamassassin
 
 
 def setUpModule():
@@ -384,4 +385,24 @@ class ConfigTest(TestCase):
             "baz = bar",
         ])
         self.assertEqual(contents, str(conf))
+
+
+class SpamAssassinTest(TestCase):
+    def test_local(self):
+        contents = "\n".join([
+            "#loadplugin Mail::SpamAssassin::Plugin::DCC",
+            "loadplugin Mail::SpamAssassin::Plugin::Pyzor",
+            "loadplugin Mail::SpamAssassin::Plugin::Razor2",
+        ])
+        path = testdata.create_file("v310.pre", contents)
+
+        c = spamassassin.Local(prototype_path=path)
+        c.update(("loadplugin", "Mail::SpamAssassin::Plugin::DCC"),)
+
+        contents = "\n".join([
+            "loadplugin              Mail::SpamAssassin::Plugin::DCC",
+            "loadplugin Mail::SpamAssassin::Plugin::Pyzor",
+            "loadplugin Mail::SpamAssassin::Plugin::Razor2",
+        ])
+        self.assertEqual(contents, str(c))
 

@@ -4,7 +4,7 @@ from captain import echo
 
 from .. import cli
 from .postfix import Postfix
-from ..path import Filepath, Dirpath
+from ..path import Dirpath, Filepath, Sentinal
 #from ..concur.formats.opendkim import OpenDKIM
 from ..concur.formats.spamassassin import SpamAssassin, Local
 from ..concur.formats.generic import EqualConfig
@@ -13,8 +13,10 @@ from ..concur.formats.generic import EqualConfig
 class Spam(object):
     """Installs and adds configuration hooks for SpamAssassin
 
+    https://spamassassin.apache.org/full/3.4.x/doc/
     http://wiki.apache.org/spamassassin/ImproveAccuracy
     https://aikar.co/2014/09/05/filtering-spam-forwarding-email-postfixspamassassin/
+    https://github.com/apache/spamassassin
     """
 
     perl_packages = [
@@ -56,6 +58,17 @@ class Spam(object):
 
     def base_configs(self):
         return [self.config_f, self.local_f]
+
+    def pre(self, basename):
+        """return configuration for one of the pre files of spam assassin
+
+        :param basename: something like v310
+        :returns: the configuration instance
+        """
+        if not basename.endswith(".pre"):
+            basename = "{}.pre".format(basename)
+        f = Filepath(Filepath(Local.dest_path).directory, basename)
+        return Local(prototype_path=str(f), dest_path=str(f))
 
     def config(self, path=SpamAssassin.dest_path):
         return SpamAssassin(prototype_path=path)
@@ -128,11 +141,18 @@ class Spam(object):
 class Razor(object):
     """Installs razor
 
+    http://razor.sourceforge.net/
     https://digitalenvelopes.email/blog/debian-integrate-razor-spamassassin/
+    https://wiki.apache.org/spamassassin/RazorSiteWide
+    https://spamassassin.apache.org/full/3.4.x/doc/Mail_SpamAssassin_Plugin_Razor2.html
 
+    https://wiki.apache.org/spamassassin/RazorHowToTell
     to test --
         razor-check -d < /usr/share/doc/spamassassin/examples/sample-spam.txt
         spamassassin -D razor2 2>&1 < /usr/share/doc/spamassassin/examples/sample-spam.txt
+
+        This is the one I've been using recently to make sure everything is working:
+        echo "test" | spamassassin -t -D razor2
     """
     @property
     def home_d(self):
@@ -186,6 +206,11 @@ class Pyzor(object):
     """Installs pyzor
 
     https://digitalenvelopes.email/blog/debian-integrate-pyzor-spamassassin/
+    https://wiki.apache.org/spamassassin/UsingPyzor
+
+    to test:
+        echo "test" | spamassassin -D pyzor
+        spamassassin -D pyzor < /usr/share/doc/spamassassin/examples/sample-spam.txt
     """
     def start(self):
         pass
@@ -221,4 +246,78 @@ class Pyzor(object):
 
     def uninstall(self):
         cli.purge("razor")
+
+
+class DCC(object):
+    """Install DCC
+
+    http://forum.directadmin.com/showthread.php?t=53179&s=5d1d3471d0ca0a99b019f457758f86c4&p=272841#post272841
+    https://www.dcc-servers.net/dcc/FAQ.html
+
+    to test:
+        spamassassin -D DCC < /usr/share/doc/spamassassin/examples/sample-spam.txt
+    """
+    @property
+    def user(self):
+        return "mail"
+
+    @property
+    def home_d(self):
+        return Dirpath("/var/lib/dcc")
+
+    def start(self):
+        pass
+
+    def restart(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def is_running(self):
+        return False
+
+    def exists(self):
+        ret = True
+        try:
+            cli.run("which cdcc")
+        except cli.RunError as e:
+            ret = not e.is_missing()
+        return ret
+
+    def install(self):
+        tmpdir = Dirpath.get_temp()
+        tar_name = "dcc-dccproc.tar.Z"
+        tar_src = "http://www.dcc-servers.net/dcc/source/dcc-dccproc.tar.Z"
+
+        tar_f = Filepath(tmpdir, tar_name)
+        if not tar_f.exists():
+            cli.run("wget -O {} {}".format(tar_name, tar_src), cwd=tmpdir.path)
+
+        # Build and install.
+        cli.run("tar xzvf {}".format(tar_name), cwd=tmpdir.path)
+        build_d = tmpdir.descendant(r"dcc-dccproc-")
+        run_d = self.home_d
+
+        cli.run(
+            "".join([
+                "./configure "
+                "--bindir=$(PREFIX)/bin ",
+                "--libexecdir=$(PREFIX)/lib/dcc ",
+                "--mandir=$(PREFIX)/man ",
+                "--homedir={} ".format(run_d),
+                "--with-uid={} ".format(self.user),
+                "--with-gid={}".format(self.user)
+            ]),
+            cwd=build_d.path
+        )
+        cli.run("make", cwd=build_d.path)
+        cli.run("make install", cwd=build_d.path)
+        run_d.chown(self.user, R=True)
+        run_d.chgrp(self.user, R=True)
+
+    def uninstall(self):
+        #cli.purge("razor")
+        # TODO -- remove /lib/dcc and /var/lib/dcc
+        raise NotImplementedError()
 

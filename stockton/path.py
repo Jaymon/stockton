@@ -56,19 +56,31 @@ class Path(object):
             self.path
         ])
 
-    def chown(self, user):
-        subprocess.check_call([
-            "chown",
-            user,
-            self.path
-        ])
+    def chown(self, user, R=False):
+        """change path ownership to user
 
-    def chgrp(self, user):
-        subprocess.check_call([
-            "chgrp",
-            user,
-            self.path
-        ])
+        :param user: the user that will now own the path
+        :param R: recurse through sub paths (if applicable)
+        """
+        bits = ["chown"]
+        if R:
+            bits.append("-R")
+
+        bits.extend([user, self.path])
+        subprocess.check_call(bits)
+
+    def chgrp(self, user, R=False):
+        """change path group to user
+
+        :param user: the user that will now own the path
+        :param R: recurse through sub paths (if applicable)
+        """
+        bits = ["chgrp"]
+        if R:
+            bits.append("-R")
+
+        bits.extend([user, self.path])
+        subprocess.check_call(bits)
 
     def move(self, path):
         p = type(self)(path)
@@ -81,6 +93,26 @@ class Path(object):
 
 
 class Dirpath(Path):
+    def descendant(self, regex):
+        """Returns the first sub directory that matches regex"""
+        ret = None
+        regexp = re.compile(regex, re.I) if regex else None
+        for root_dir, ds, _ in os.walk(self.path, topdown=True):
+            for basename in ds:
+                if regexp.search(basename):
+                    ret = type(self)(root_dir, basename)
+                    break
+
+                else:
+                    if regexp.search(os.path.join(root_dir, basename)):
+                        ret = type(self)(root_dir, basename)
+                        break
+
+            if ret:
+                break
+
+        return ret
+
     def count(self, regex=None):
         count = 0
         regexp = re.compile(regex, re.I) if regex else None

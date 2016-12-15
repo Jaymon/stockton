@@ -15,7 +15,7 @@ from stockton.concur.formats.opendkim import OpenDKIM
 from stockton.concur.formats.generic import SpaceConfig
 from stockton.path import Dirpath, Filepath, Sentinal
 
-from stockton.interface import SMTP, Postfix, DKIM, Spam, Razor, Pyzor, SRS
+from stockton.interface import SMTP, Postfix, DKIM, Spam, Razor, Pyzor, SRS, DCC
 
 
 def main_prepare():
@@ -251,16 +251,19 @@ def main_configure_razor():
     if not s.exists():
         raise RuntimeError("SpamAssassin is not installed")
 
+    r = Razor()
+
     c = s.local()
+    # https://spamassassin.apache.org/full/3.4.x/doc/Mail_SpamAssassin_Plugin_Razor2.html
     c.update(
         ("use_razor2", 1),
+        ("razor_config", str(r.config_f)),
         ("score RAZOR2_CF_RANGE_51_100", "5.0"),
         ("score RAZOR2_CF_RANGE_E8_51_100", "5.0"),
         ("score RAZOR2_CHECK", "3.0"),
     )
     c.save()
 
-    r = Razor()
     r.install()
 
     c = r.config()
@@ -288,6 +291,35 @@ def main_configure_pyzor():
     p = Pyzor()
     p.install()
 
+    s.restart()
+
+
+def main_configure_dcc():
+    """Enable dcc for SpamAssassin"""
+    s = Spam()
+    if not s.exists():
+        raise RuntimeError("SpamAssassin is not installed")
+
+    dcc = DCC()
+
+    c = s.local()
+    # https://spamassassin.apache.org/full/3.4.x/doc/Mail_SpamAssassin_Plugin_Razor2.html
+    c.update(
+        ("use_dcc", 1),
+        ("dcc_home", str(dcc.home_d)),
+        ("dcc_timeout", 10),
+        ("add_header", "all DCC _DCCB_: _DCCR_"),
+        ("score DCC_CHECK", "5.0"),
+    )
+    c.save()
+
+    c = s.pre("v310")
+    c.update(
+        ("loadplugin", "Mail::SpamAssassin::Plugin::DCC"),
+    )
+    c.save()
+
+    dcc.install()
     s.restart()
 
 
@@ -520,7 +552,7 @@ def main_lockdown_spam():
 
     c = s.local()
     c.update(
-        ("rewrite_header", "Subject SPAM _SCORE_ *"),
+        ("rewrite_header", "Subject *****SPAM***** _SCORE_ *"),
         ("report_safe", 0),
         ("required_score", 4.0),
         ("use_bayes", 1),
