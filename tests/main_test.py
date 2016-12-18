@@ -6,7 +6,7 @@ import testdata
 from stockton import cli
 from stockton.path import Filepath, Dirpath
 from stockton.concur.formats.postfix import Main, SMTPd, Master
-from stockton.interface import Postfix, Spam, Razor, Pyzor, DKIM, SRS, SMTP
+from stockton.interface import Postfix, Spam, Razor, Pyzor, DKIM, SRS, SMTP, DCC
 
 from . import TestCase as BaseTestCase, Stockton
 
@@ -118,12 +118,34 @@ class ConfigureSRSTest(TestCase):
 
 
 class ConfigureSpamLibsTest(TestCase):
+    def test_dcc(self):
+        sp = Spam()
+        sp.uninstall()
+
+        dcc = DCC()
+        dcc.uninstall()
+        self.assertFalse(dcc.exists())
+
+        self.setup_domain("example.com")
+
+        with self.assertRaises(RuntimeError):
+            s = Stockton("configure-dcc")
+            r = s.run()
+
+        s = Stockton("lockdown-spam")
+        r = s.run()
+
+        s = Stockton("configure-dcc")
+        r = s.run()
+
+        self.assertTrue("DCC_CHECK" in dcc.test())
+
     def test_pyzor(self):
         sp = Spam()
         sp.uninstall()
-        r = Razor()
         p = Pyzor()
         p.uninstall()
+        self.assertFalse(p.exists())
 
         self.setup_domain("example.com")
 
@@ -137,13 +159,14 @@ class ConfigureSpamLibsTest(TestCase):
         s = Stockton("configure-pyzor")
         r = s.run()
 
-
+        self.assertTrue("pyzor is available" in p.test())
 
     def test_razor(self):
         sp = Spam()
         sp.uninstall()
-        r = Razor()
-        r.uninstall()
+        ra = Razor()
+        ra.uninstall()
+        self.assertFalse(ra.exists())
 
         self.setup_domain("example.com")
 
@@ -157,6 +180,7 @@ class ConfigureSpamLibsTest(TestCase):
         s = Stockton("configure-razor")
         r = s.run()
 
+        self.assertTrue("Found razorhome: {}".format(ra.home_d) in ra.test())
 
 
 class DomainTest(TestCase):

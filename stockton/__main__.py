@@ -309,11 +309,11 @@ def main_configure_dcc():
         ("dcc_home", str(dcc.home_d)),
         ("dcc_timeout", 10),
         ("add_header", "all DCC _DCCB_: _DCCR_"),
-        ("score DCC_CHECK", "5.0"),
+        ("score DCC_CHECK", "1.0"),
     )
     c.save()
 
-    c = s.pre("v310")
+    c = s.pre_config("v310")
     c.update(
         ("loadplugin", "Mail::SpamAssassin::Plugin::DCC"),
     )
@@ -609,7 +609,12 @@ def main_lockdown_spam():
 def main_lockdown(mailserver):
     """Run all the lockdown commands"""
     main_lockdown_postfix(mailserver)
+
+    # spamassassin and plugins setup and configuration
     main_lockdown_spam()
+    main_configure_razor()
+    main_configure_pyzor()
+    main_configure_dcc()
 
 
 @arg('domain', help='The domain whose dns will be checked (eg, example.com)')

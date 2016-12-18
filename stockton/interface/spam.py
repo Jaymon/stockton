@@ -59,8 +59,8 @@ class Spam(object):
     def base_configs(self):
         return [self.config_f, self.local_f]
 
-    def pre(self, basename):
-        """return configuration for one of the pre files of spam assassin
+    def pre_config(self, basename):
+        """return configuration for one of the pre configuration files of spam assassin
 
         :param basename: something like v310
         :returns: the configuration instance
@@ -145,6 +145,7 @@ class Razor(object):
     https://digitalenvelopes.email/blog/debian-integrate-razor-spamassassin/
     https://wiki.apache.org/spamassassin/RazorSiteWide
     https://spamassassin.apache.org/full/3.4.x/doc/Mail_SpamAssassin_Plugin_Razor2.html
+    https://wiki.apache.org/spamassassin/UsingRazor
 
     https://wiki.apache.org/spamassassin/RazorHowToTell
     to test --
@@ -161,6 +162,10 @@ class Razor(object):
     @property
     def config_f(self):
         return Filepath(self.home_d, "razor-agent.conf")
+
+    def test(self):
+        r = cli.run("spamassassin -D razor2 < /usr/share/doc/spamassassin/examples/sample-spam.txt")
+        return r
 
     def config(self, path=""):
         if not path:
@@ -186,7 +191,7 @@ class Razor(object):
         try:
             cli.run("which razor-admin")
         except cli.RunError as e:
-            ret = not e.is_missing()
+            ret = False
         return ret
 
     def install(self):
@@ -212,6 +217,10 @@ class Pyzor(object):
         echo "test" | spamassassin -D pyzor
         spamassassin -D pyzor < /usr/share/doc/spamassassin/examples/sample-spam.txt
     """
+    def test(self):
+        r = cli.run("spamassassin -D pyzor < /usr/share/doc/spamassassin/examples/sample-spam.txt")
+        return r
+
     def start(self):
         pass
 
@@ -233,7 +242,7 @@ class Pyzor(object):
         try:
             cli.run("which pyzor")
         except cli.RunError as e:
-            ret = not e.is_missing()
+            ret = False
         return ret
 
     def install(self):
@@ -245,7 +254,7 @@ class Pyzor(object):
             raise IOError("Pyzor ping was unsuccessful")
 
     def uninstall(self):
-        cli.purge("razor")
+        cli.purge("pyzor")
 
 
 class DCC(object):
@@ -253,6 +262,7 @@ class DCC(object):
 
     http://forum.directadmin.com/showthread.php?t=53179&s=5d1d3471d0ca0a99b019f457758f86c4&p=272841#post272841
     https://www.dcc-servers.net/dcc/FAQ.html
+    https://wiki.apache.org/spamassassin/InstallingDCC
 
     to test:
         spamassassin -D DCC < /usr/share/doc/spamassassin/examples/sample-spam.txt
@@ -264,6 +274,10 @@ class DCC(object):
     @property
     def home_d(self):
         return Dirpath("/var/lib/dcc")
+
+    def test(self):
+        r = cli.run("spamassassin -D DCC < /usr/share/doc/spamassassin/examples/sample-spam.txt")
+        return r
 
     def start(self):
         pass
@@ -282,7 +296,7 @@ class DCC(object):
         try:
             cli.run("which cdcc")
         except cli.RunError as e:
-            ret = not e.is_missing()
+            ret = False
         return ret
 
     def install(self):
@@ -318,6 +332,15 @@ class DCC(object):
 
     def uninstall(self):
         #cli.purge("razor")
-        # TODO -- remove /lib/dcc and /var/lib/dcc
-        raise NotImplementedError()
+        for path in ["/lib/dcc", "/var/lib/dcc"]:
+            d = Dirpath(path)
+            d.delete()
+
+        # clean up executable files
+        d = Dirpath("/bin")
+        d.delete_files(r"^c?dcc")
+
+        # delete man
+        d = Dirpath("/man/man8")
+        d.delete_files(r"^c?dcc")
 
