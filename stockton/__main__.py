@@ -82,6 +82,12 @@ def main_configure_recv(mailserver):
         ("smtp_tls_session_cache_database", "btree:${data_directory}/smtp_scache"),
     ])
 
+    # Other
+    settings.extend([
+        # https://www.digitalocean.com/community/questions/can-not-send-any-email-from-postfix?comment=37657
+        ("inet_protocols", "ipv4"),
+    ])
+
     # Queue tuning from http://www.postfix.org/TUNING_README.html#hammer
     settings.extend([
         # How long a MAILER-DAEMON message stays in the queue before it is considered
@@ -600,6 +606,11 @@ def main_lockdown_spam():
     m["spamassassin"] = section
     m.save()
 
+    # configure plugins
+    main_configure_razor()
+    main_configure_pyzor()
+    main_configure_dcc()
+
     p.restart()
     s.restart()
 
@@ -612,9 +623,6 @@ def main_lockdown(mailserver):
 
     # spamassassin and plugins setup and configuration
     main_lockdown_spam()
-    main_configure_razor()
-    main_configure_pyzor()
-    main_configure_dcc()
 
 
 @arg('domain', help='The domain whose dns will be checked (eg, example.com)')
