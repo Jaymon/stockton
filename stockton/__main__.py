@@ -86,6 +86,9 @@ def main_configure_recv(mailserver):
     settings.extend([
         # https://www.digitalocean.com/community/questions/can-not-send-any-email-from-postfix?comment=37657
         ("inet_protocols", "ipv4"),
+        # configure attachment size to match gmail
+        # https://serverfault.com/questions/327416/changing-the-maximum-mail-size-in-postfix
+        ("message_size_limit", "51200000"), # postconf -e message_size_limit=51200000
     ])
 
     # Queue tuning from http://www.postfix.org/TUNING_README.html#hammer
@@ -600,7 +603,8 @@ def main_lockdown_spam():
 
     section = m.create_section("spamassassin unix - n n - - pipe")
     section.update(
-        "user={} argv=/usr/bin/spamc -f -e".format(s.user),
+        # This is mostly boilerplate except we increase default size from 500k to 3mb
+        "user={} argv=/usr/bin/spamc -s 1536000 -e".format(s.user),
         "/usr/sbin/sendmail -oi -f ${sender} ${recipient}",
     )
     m["spamassassin"] = section
