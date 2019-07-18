@@ -30,7 +30,9 @@ class Mailserver(Record):
         a = self.domain.a(self.ip.host)
         if not a:
             ret = [
-                ("hostname", self.domain.host),
+                ("type", "A"),
+                ("name", "@"),
+                #("hostname", self.domain.host),
                 ("target", self.ip.host),
             ]
         return ret
@@ -40,6 +42,7 @@ class Mailserver(Record):
         ptr = self.ip.ptr(self.domain.host)
         if not ptr:
             ret = [
+                ("type", "PTR"),
                 ("hostname", self.domain.host),
             ]
         return ret
@@ -55,7 +58,9 @@ class Alias(Record):
         mx = self.domain.mx(self.mailserver.host)
         if not mx:
             ret = [
-                ("hostname", self.domain.host),
+                #("hostname", self.domain.host),
+                ("type", "MX"),
+                ("name", "@"),
                 ("mailserver domain", self.mailserver.host),
                 ("priority", "100"),
             ]
@@ -66,7 +71,9 @@ class Alias(Record):
         txts = self.domain.spf()
         if not txts:
             ret = [
-                ("hostname", self.domain.host),
+                ("type", "TXT"),
+                #("hostname", self.domain.host),
+                ("name", "@"),
                 ("text", "v=spf1 mx ~all"),
             ]
         return ret
@@ -79,6 +86,7 @@ class Alias(Record):
         txts = d.dkim()
         if not txts or (domainkey.p not in txts[0]["text"]):
             ret = [
+                ("type", "TXT"),
                 ("hostname", domainkey.subdomain),
                 ("text", domainkey.text),
             ]
