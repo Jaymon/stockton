@@ -742,7 +742,7 @@ def console():
         if os.environ["USER"] != "root":
             raise RuntimeError("User is not root, re-run command with sudo")
 
-    exit()
+    exit(__name__)
 
 if __name__ == "__main__":
     console()
